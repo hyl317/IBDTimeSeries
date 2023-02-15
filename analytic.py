@@ -150,10 +150,18 @@ def singlePop_2tp_given_vecNe_withError(Ne, G, L, gap, FP, R, POWER):
 
 
 
-def singlePop_2tp_given_Ne_negLoglik(Ne, histogram, binMidpoint, G, gap, numPairs):
+def singlePop_2tp_given_Ne_negLoglik(Ne, histogram, binMidpoint, G, gap, numPairs, timeBound=None):
     assert(len(histogram) == len(binMidpoint))
     step = binMidpoint[1] - binMidpoint[0]
-    lambdas = singlePop_2tp_given_Ne(Ne, G, binMidpoint, gap)
+    if not timeBound:
+        lambdas = singlePop_2tp_given_Ne(Ne, G, binMidpoint, gap)
+    else:
+        low1, high1 = timeBound[0]
+        low2, high2 = timeBound[1]
+        weight_per_combo = 1/((high1+1-low1)*(high2+1-low2))
+        for i in np.arange(low1, high1+1):
+            for j in np.arange(low2, high2+1):
+                lambdas = weight_per_combo*singlePop_2tp_given_Ne(Ne, G, binMidpoint, abs(i-j))
     lambdas = lambdas*numPairs*(step/100)
     loglik_each_bin = histogram*np.log(lambdas) - lambdas
     return -np.sum(loglik_each_bin)

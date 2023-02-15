@@ -13,29 +13,32 @@ import pickle
 import warnings
 from pathlib import Path
 import pandas as pd
+import itertools
 
 ch_len_dict = {1:286.279, 2:268.840, 3:223.361, 4:214.688, 5:204.089, 6:192.040, 7:187.221, 8:168.003, 9:166.359, \
         10:181.144, 11:158.219, 12:174.679, 13:125.706, 14:120.203, 15:141.860, 16:134.038, 17:128.491, 18:117.709, \
         19:107.734, 20:108.267, 21:62.786, 22:74.110}
 
 
-def singlePop_MultiTP_given_Ne_negLoglik(Ne, histograms, binMidpoint, G, gaps, nSamples):
+def singlePop_MultiTP_given_Ne_negLoglik(Ne, histograms, binMidpoint, G, gaps, nSamples, timeBound=None):
     accu = 0
     for id, nSample in nSamples.items():
         if nSample == 1:
             continue
-        accu += singlePop_2tp_given_Ne_negLoglik(Ne, histograms[(id, id)], binMidpoint, G, 0, (2*nSample)*(2*nSample-2)/2)
+        accu += singlePop_2tp_given_Ne_negLoglik(Ne, histograms[(id, id)], binMidpoint, G, 0, (2*nSample)*(2*nSample-2)/2, \
+                timeBound=[(timeBound[id]), (timeBound[id])])
     for id1, id2 in itertools.combinations(nSamples.keys(), 2):
         accu += singlePop_2tp_given_Ne_negLoglik(Ne, histograms[(min(id1, id2), max(id1, id2))], binMidpoint, \
-            G, abs(gaps[id1]-gaps[id2]), (2*nSamples[id1])*(2*nSamples[id2]))
+                G, abs(gaps[id1]-gaps[id2]), (2*nSamples[id1])*(2*nSamples[id2]),\
+                timeBound=[(timeBound[id1]), (timeBound[id2])])
     return accu
 
-def inferConstNe_singlePop_MultiTP(histograms, binMidpoint, gaps, nSamples, Ninit, chrlens):
+def inferConstNe_singlePop_MultiTP(histograms, binMidpoint, gaps, nSamples, Ninit, chrlens, timeBound=None):
     # given the observed ibd segments, estimate the Ne assuming a constant effective Ne
     # gaps: dictionary, where the key is the sampling cluter index and the value is the sampling time
     # nSamples: dictionary, where the key is the sampling cluster index and the value is the number of diploid samples within each cluster
 
-    kargs = (histograms, binMidpoint, chrlens, gaps, nSamples)
+    kargs = (histograms, binMidpoint, chrlens, gaps, nSamples, timeBound)
     res = minimize(singlePop_MultiTP_given_Ne_negLoglik, Ninit, args=kargs, method='L-BFGS-B', bounds=[(10, 5e6)])
     return res.x[0]
 
@@ -100,20 +103,32 @@ def singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, G, gaps
 
     return accu, grad
 
-def bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, Ninit=500, Tmax=100, \
+def bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, timeBound=None, Ninit=500, Tmax=100, \
         minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0, \
         step=0.1, alpha=1e-6, beta=1e-4, method='l2', FP=None, R=None, POWER=None, verbose=False):
     # perform one bootstrap resampling
 
     ###################### First, infer a const Ne ################################
     histograms, binMidpoint, chrlens = prepare_input(ibds_by_chr, ch_ids, ch_len_dict, nSamples.keys(), minL=minL_infer, maxL=maxL_infer, step=step)
-    Nconst = inferConstNe_singlePop_MultiTP(histograms, binMidpoint, gaps, nSamples, Ninit, chrlens)
+    Nconst = inferConstNe_singlePop_MultiTP(histograms, binMidpoint, gaps, nSamples, Ninit, chrlens, timeBound=timeBound)
     if verbose:
         print(f'estimated constant Ne: {Nconst}')
     ################################################################################
     histograms, binMidpoint, chrlens = prepare_input(ibds_by_chr, ch_ids, ch_len_dict, nSamples.keys(), minL=minL_calc, maxL=maxL_calc, step=step)
     t_min = np.min(list(gaps.values()))
     t_max = np.max(list(gaps.values()))
+    if timeBound != None:
+        i_min = -1
+        i_max = -1
+        for k, v in gaps.items():
+            if v == t_min:
+                i_min = k
+            if v == t_max:
+                i_max = k
+        assert(i_min != -1)
+        assert(i_max != -1)
+    t_min += timeBound[i_min][0]
+    t_max += timeBound[i_max][1]
 
     bins_infer = np.arange(minL_infer, maxL_infer+step, step)
     binMidpoint_infer = (bins_infer[1:] + bins_infer[:-1])/2
@@ -180,9 +195,20 @@ def prepare_input(ibds_by_chr, ch_ids, ch_len_dict, sampleIDs, minL=4.0, maxL=20
     return histograms, binMidpoint, np.array(chrlens)
 
 
-def inferVecNe_singlePop_MultiTP(ibds_by_chr, gaps, nSamples, ch_len_dict, Ninit=500, Tmax=100, \
+def inferVecNe_singlePop_MultiTP(ibds_by_chr, gaps, nSamples, ch_len_dict, timeBound=None, Ninit=500, Tmax=100, \
         minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0,
         step=0.1, alpha=1e-6, beta=1e-4, method='l2', FP=None, R=None, POWER=None, nprocess=6, plot=False, prefix="", doBootstrap=True, outFolder='.'):
+    """
+    Parameter
+    ---------
+    timeBound: dict
+        A dictionary specifying the dating uncertainty of each of the sampling cluster. For example, 1:(-2,3) means that the dating of the sample cluster 1
+        is distributed from 2 generations more recent, to 3 generations older than the time point given in the parameter gaps. We assume a uniform distribution across this range.
+    
+    """
+
+
+
 
     if ((FP is None) or (R is None) or (POWER is None)) and (minL_calc != minL_infer or maxL_calc != maxL_infer):
         warnings.warn('Error model not provided... Setting the length range used for calculation and inference to be the same.')
@@ -191,7 +217,7 @@ def inferVecNe_singlePop_MultiTP(ibds_by_chr, gaps, nSamples, ch_len_dict, Ninit
 
     # estimate Ne using the original data
     ch_ids = [k for k, v in ch_len_dict.items()]
-    Ne = bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, Ninit=Ninit, Tmax=Tmax, \
+    Ne = bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, timeBound=timeBound, Ninit=Ninit, Tmax=Tmax, \
         minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, \
         step=step, alpha=alpha, beta=beta, method=method, FP=FP, R=R, POWER=POWER, verbose=True)
     if plot:
@@ -208,7 +234,7 @@ def inferVecNe_singlePop_MultiTP(ibds_by_chr, gaps, nSamples, ch_len_dict, Ninit
         nresample = 200
         ch_ids = [k for k, v in ch_len_dict.items()]
         resample_chrs = [ np.random.choice(ch_ids, size=len(ch_ids)) for i in range(nresample)]
-        lowCI, upCI = bootstrap(bootstrap_single_run, resample_chrs, nprocess, False, ibds_by_chr, gaps, nSamples, ch_len_dict, Ninit, Tmax, \
+        lowCI, upCI = bootstrap(bootstrap_single_run, resample_chrs, nprocess, False, ibds_by_chr, gaps, nSamples, ch_len_dict, timeBound, Ninit, Tmax, \
             minL_calc, maxL_calc, minL_infer, maxL_infer, step, alpha, beta, method, FP, R, POWER)
         return Ne, lowCI, upCI
     else:

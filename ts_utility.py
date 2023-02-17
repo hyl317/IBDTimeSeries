@@ -295,7 +295,7 @@ def timeSampling_singlePop_MultiTP_cohort_chrom(Ne=1e3, nSamples=[], gaps=[], ch
 
     nSamples_copy = nSamples if not timeInterval else nSamples_model
     if len(nSamples_copy) == 1:
-        ret, results4IBDNe = ibd_segments_fast(ts, bkp_bp, bkp_cm, within=list(range(0, 2*nSamples[0])), max_time=endTime, minLen=minLen)
+        ret, results4IBDNe = ibd_segments_fast(ts, bkp_bp, bkp_cm, within=list(range(0, 2*nSamples_copy[0])), max_time=endTime, minLen=minLen)
         results[(0,0)].extend(ret)
         return results, results4IBDNe, chr
     else:
@@ -329,7 +329,6 @@ def timeSampling_singlePop_MultiTP_cohort_chrom(Ne=1e3, nSamples=[], gaps=[], ch
                 results[(i, j)].extend(ibd_extractor(ts, id1, id2, bps, cMs, maxGen=endTime, minLen=minLen))
     print(f'extracting IBD done for ch{chr}, takes {round(time.time() - t1)}s')
     return results, chr
-
 
 def timeSampling_singlePop_MultiTP_cohort_ind(Ne=1e3, nSamples=[], gaps=[], chr=range(1,23), minLen=4.0, record_full_arg=True, \
         demography=None, random_seed=1, endTime=1e3, nprocess=6, nSamples_model=[], timeInterval=False):

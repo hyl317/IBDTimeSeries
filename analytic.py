@@ -150,41 +150,50 @@ def singlePop_2tp_given_vecNe_withError(Ne, G, L, gap, FP, R, POWER):
 
 
 
-def singlePop_2tp_given_Ne_negLoglik(Ne, histogram, binMidpoint, G, gap, numPairs, timeBound=None):
+def singlePop_2tp_given_Ne_negLoglik(Ne, histogram, binMidpoint, G, age1, age2, numPairs, timeBound):
     assert(len(histogram) == len(binMidpoint))
     step = binMidpoint[1] - binMidpoint[0]
-    if not timeBound:
-        lambdas = singlePop_2tp_given_Ne(Ne, G, binMidpoint, gap)
-    else:
-        low1, high1 = timeBound[0]
-        low2, high2 = timeBound[1]
-        weight_per_combo = 1/((high1+1-low1)*(high2+1-low2))
-        for i in np.arange(low1, high1+1):
-            for j in np.arange(low2, high2+1):
-                lambdas = weight_per_combo*singlePop_2tp_given_Ne(Ne, G, binMidpoint, abs(i-j))
+    low1, high1 = timeBound[0]
+    low2, high2 = timeBound[1]
+    weight_per_combo = 1/((high1+1-low1)*(high2+1-low2))
+    lambdas = np.zeros(len(binMidpoint))
+    for i in np.arange(low1, high1+1):
+        for j in np.arange(low2, high2+1):
+            lambdas += weight_per_combo*singlePop_2tp_given_Ne(Ne, G, binMidpoint, abs((age1+i) - (age2+j)))
     lambdas = lambdas*numPairs*(step/100)
     loglik_each_bin = histogram*np.log(lambdas) - lambdas
     return -np.sum(loglik_each_bin)
 
-def singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histogram, binMidpoint, G, gap, numPairs, s=0, e=-1, \
-            FP=None, R=None, POWER=None, tail=False, timeBound=None):
+def singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histogram, binMidpoint, G, age1, age2, Tmax, numPairs, timeBound,\
+        s=0, e=-1, FP=None, R=None, POWER=None, tail=False):
     # G: chromosome length, given in cM
     # binMidPoint: given in cM
     # timeBound: a list of two tuples, for example, [(-2,3), (-4,2)], which gives the time range (in generations, relative to the mean age) of the first and second sampling clusters.
     assert(len(histogram) == len(binMidpoint))
     step = binMidpoint[1] - binMidpoint[0]
-
-    if (FP is None) or (R is None) or (POWER is None):
-        lambdas, grad_mat = singlePop_2tp_given_vecNe(Ne, G, binMidpoint, gap, tail=tail)
-    else:
-        lambdas, grad_mat = singlePop_2tp_given_vecNe_withError(Ne, G, binMidpoint, gap, FP, R, POWER)
+    
+    low1, high1 = timeBound[0]
+    low2, high2 = timeBound[1]
+    weight_per_combo = 1/((high1+1-low1)*(high2+1-low2))
+    grad_accu = np.zeros((len(Ne), len(binMidpoint)))
+    lambda_accu = np.zeros(len(binMidpoint))
+    for i in np.arange(low1, high1+1):
+        for j in np.arange(low2, high2+1):
+            age_ = max(age1+i, age2+j)
+            if (FP is None) or (R is None) or (POWER is None):
+                lambdas, grad_mat = singlePop_2tp_given_vecNe(Ne[age_:Tmax+age_], G, binMidpoint, abs((age1+i) - (age2+j)), tail=tail)
+            else:
+                lambdas, grad_mat = singlePop_2tp_given_vecNe_withError(Ne[age_:Tmax+age_], G, binMidpoint, abs((age1+i) - (age2+j)), FP, R, POWER)
+            lambda_accu += weight_per_combo*lambdas
+            grad_accu[age_:Tmax+age_,:] += weight_per_combo*grad_mat
+    
     # subset to segment length range of interest for inference
     histogram = histogram[s:e]
-    lambdas = lambdas[s:e]
-    grad_mat = grad_mat[:, s:e]
-    lambdas = lambdas*numPairs*(step/100)
-    loglik_each_bin = histogram*np.log(lambdas) - lambdas
-    grad = -numPairs*(step/100)*np.sum((histogram/lambdas - 1).reshape((1, len(histogram)))*grad_mat, axis=1).flatten()
+    lambda_accu = lambda_accu[s:e]
+    grad_accu = grad_accu[:, s:e]
+    lambda_accu = lambda_accu*numPairs*(step/100)
+    loglik_each_bin = histogram*np.log(lambda_accu) - lambda_accu
+    grad = -numPairs*(step/100)*np.sum((histogram/lambda_accu - 1).reshape((1, len(histogram)))*grad_accu, axis=1).flatten()
     return -np.sum(loglik_each_bin), grad
 
 

@@ -20,30 +20,30 @@ ch_len_dict = {1:286.279, 2:268.840, 3:223.361, 4:214.688, 5:204.089, 6:192.040,
         19:107.734, 20:108.267, 21:62.786, 22:74.110}
 
 
-def singlePop_MultiTP_given_Ne_negLoglik(Ne, histograms, binMidpoint, G, gaps, nSamples, timeBound=None):
+def singlePop_MultiTP_given_Ne_negLoglik(Ne, histograms, binMidpoint, G, gaps, nSamples, timeBoundDict):
     accu = 0
     for id, nSample in nSamples.items():
         if nSample == 1:
             continue
-        accu += singlePop_2tp_given_Ne_negLoglik(Ne, histograms[(id, id)], binMidpoint, G, 0, (2*nSample)*(2*nSample-2)/2, \
-                timeBound=[(timeBound[id]), (timeBound[id])])
+        accu += singlePop_2tp_given_Ne_negLoglik(Ne, histograms[(id, id)], binMidpoint, G, gaps[id], gaps[id],\
+            (2*nSample)*(2*nSample-2)/2, [(timeBoundDict[id]), (timeBoundDict[id])])
     for id1, id2 in itertools.combinations(nSamples.keys(), 2):
         accu += singlePop_2tp_given_Ne_negLoglik(Ne, histograms[(min(id1, id2), max(id1, id2))], binMidpoint, \
-                G, abs(gaps[id1]-gaps[id2]), (2*nSamples[id1])*(2*nSamples[id2]),\
-                timeBound=[(timeBound[id1]), (timeBound[id2])])
+                G, gaps[id1], gaps[id2], (2*nSamples[id1])*(2*nSamples[id2]),\
+                [(timeBoundDict[id1]), (timeBoundDict[id2])])
     return accu
 
-def inferConstNe_singlePop_MultiTP(histograms, binMidpoint, gaps, nSamples, Ninit, chrlens, timeBound=None):
+def inferConstNe_singlePop_MultiTP(histograms, binMidpoint, gaps, nSamples, Ninit, chrlens, timeBoundDict):
     # given the observed ibd segments, estimate the Ne assuming a constant effective Ne
     # gaps: dictionary, where the key is the sampling cluter index and the value is the sampling time
     # nSamples: dictionary, where the key is the sampling cluster index and the value is the number of diploid samples within each cluster
 
-    kargs = (histograms, binMidpoint, chrlens, gaps, nSamples, timeBound)
+    kargs = (histograms, binMidpoint, chrlens, gaps, nSamples, timeBoundDict)
     res = minimize(singlePop_MultiTP_given_Ne_negLoglik, Ninit, args=kargs, method='L-BFGS-B', bounds=[(10, 5e6)])
     return res.x[0]
 
 
-def singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, G, gaps, nSamples, time_offset, Tmax, alpha, beta, s=0, e=-1, FP=None, R=None, POWER=None, tail=False):
+def singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, G, gaps, nSamples, Tmax, alpha, beta, timeBoundDict, s=0, e=-1, FP=None, R=None, POWER=None, tail=False):
     # return the negative loglikelihood of Ne, plus the penalty term
     # G: a vector of chromosome length
     # gaps: dictionary, where the key is the sampling cluter index and the value is the sampling time
@@ -53,17 +53,20 @@ def singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, G, gaps
     for id, nSample in nSamples.items():
         if nSample == 1:
             continue
-        i = gaps[id]-time_offset
-        accu_, grad_ = singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne[i:i+Tmax], histograms[(id, id)], binMidpoint, G, 0, \
-            (2*nSample)*(2*nSample-2)/2, s=s, e=e, FP=FP, R=R, POWER=POWER, tail=tail)
+        age = gaps[id]
+        accu_, grad_ = singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histograms[(id, id)], binMidpoint, G, \
+            age, age, Tmax, (2*nSample)*(2*nSample-2)/2, [timeBoundDict[id], timeBoundDict[id]], 
+            s=s, e=e, FP=FP, R=R, POWER=POWER, tail=tail)
         accu += accu_
-        grad[i:i+Tmax] += grad_
+        grad += grad_
     for id1, id2 in itertools.combinations(nSamples.keys(), 2):
-        i = max(gaps[id1], gaps[id2])-time_offset
-        accu_, grad_ = singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne[i:i+Tmax], histograms[(min(id1, id2), max(id1, id2))], \
-            binMidpoint, G, abs(gaps[id1] - gaps[id2]), (2*nSamples[id1])*(2*nSamples[id2]), s=s, e=e, FP=FP, R=R, POWER=POWER, tail=tail)
+        #i = max(gaps[id1], gaps[id2])-time_offset
+        accu_, grad_ = singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histograms[(min(id1, id2), max(id1, id2))], \
+            binMidpoint, G, gaps[id1], gaps[id2], Tmax, \
+                (2*nSamples[id1])*(2*nSamples[id2]), [timeBoundDict[id1], timeBoundDict[id2]], 
+                s=s, e=e, FP=FP, R=R, POWER=POWER, tail=tail)
         accu += accu_
-        grad[i:i+Tmax] += grad_
+        grad += grad_
     
     if alpha != 0:
         penalty1 = alpha*np.sum(np.diff(np.log(Ne), n=2)**2)
@@ -103,32 +106,36 @@ def singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, G, gaps
 
     return accu, grad
 
-def bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, timeBound=None, Ninit=500, Tmax=100, \
+def bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, timeBoundDict, Ninit=500, Tmax=100, \
         minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0, \
         step=0.1, alpha=1e-6, beta=1e-4, method='l2', FP=None, R=None, POWER=None, verbose=False):
     # perform one bootstrap resampling
 
     ###################### First, infer a const Ne ################################
     histograms, binMidpoint, chrlens = prepare_input(ibds_by_chr, ch_ids, ch_len_dict, nSamples.keys(), minL=minL_infer, maxL=maxL_infer, step=step)
-    Nconst = inferConstNe_singlePop_MultiTP(histograms, binMidpoint, gaps, nSamples, Ninit, chrlens, timeBound=timeBound)
+    Nconst = inferConstNe_singlePop_MultiTP(histograms, binMidpoint, gaps, nSamples, Ninit, chrlens, timeBoundDict)
     if verbose:
         print(f'estimated constant Ne: {Nconst}')
     ################################################################################
     histograms, binMidpoint, chrlens = prepare_input(ibds_by_chr, ch_ids, ch_len_dict, nSamples.keys(), minL=minL_calc, maxL=maxL_calc, step=step)
     t_min = np.min(list(gaps.values()))
     t_max = np.max(list(gaps.values()))
-    if timeBound != None:
-        i_min = -1
-        i_max = -1
-        for k, v in gaps.items():
-            if v == t_min:
-                i_min = k
-            if v == t_max:
-                i_max = k
-        assert(i_min != -1)
-        assert(i_max != -1)
-    t_min += timeBound[i_min][0]
-    t_max += timeBound[i_max][1]
+    i_min = -1
+    i_max = -1
+    for k, v in gaps.items():
+        if v == t_min:
+            i_min = k
+        if v == t_max:
+            i_max = k
+    assert(i_min != -1)
+    assert(i_max != -1)
+    t_min += timeBoundDict[i_min][0] # here t_min is either 0 or negative
+    t_max += timeBoundDict[i_max][1]
+    ### shift each sample cluster's time by |t_min|
+    gaps_adjusted = {}
+    for k, v in gaps.items():
+        gaps_adjusted[k] = v + abs(t_min)
+
 
     bins_infer = np.arange(minL_infer, maxL_infer+step, step)
     binMidpoint_infer = (bins_infer[1:] + bins_infer[:-1])/2
@@ -139,7 +146,7 @@ def bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, timeB
         assert(len(POWER) == len(binMidpoint))
         assert(R.shape[0] == R.shape[1] == len(binMidpoint))
 
-    kargs = (histograms, binMidpoint, chrlens, gaps, nSamples, t_min, Tmax, alpha, beta, s, e+1, FP, R, POWER)
+    kargs = (histograms, binMidpoint, chrlens, gaps_adjusted, nSamples, Tmax, alpha, beta, timeBoundDict, s, e+1, FP, R, POWER)
     NinitVec = np.exp(np.random.normal(np.log(Nconst), np.log(Nconst)/25, Tmax + (t_max - t_min)))
     
     if method == 'l2':
@@ -217,7 +224,13 @@ def inferVecNe_singlePop_MultiTP(ibds_by_chr, gaps, nSamples, ch_len_dict, timeB
 
     # estimate Ne using the original data
     ch_ids = [k for k, v in ch_len_dict.items()]
-    Ne = bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, timeBound=timeBound, Ninit=Ninit, Tmax=Tmax, \
+    if not timeBound:
+        timeBound = {}
+        for id, _ in nSamples.items():
+            timeBound[id] = (0, 0)
+
+    assert(np.min(list(gaps.values())) == 0) # the most recent sample cluster must be labeled as generation 0
+    Ne = bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, timeBound, Ninit=Ninit, Tmax=Tmax, \
         minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, \
         step=step, alpha=alpha, beta=beta, method=method, FP=FP, R=R, POWER=POWER, verbose=True)
     if plot:

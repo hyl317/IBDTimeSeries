@@ -166,9 +166,11 @@ def singlePop_2tp_given_Ne_negLoglik(Ne, histogram, binMidpoint, G, gap, numPair
     loglik_each_bin = histogram*np.log(lambdas) - lambdas
     return -np.sum(loglik_each_bin)
 
-def singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histogram, binMidpoint, G, gap, numPairs, s=0, e=-1, FP=None, R=None, POWER=None, tail=False):
+def singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histogram, binMidpoint, G, gap, numPairs, s=0, e=-1, \
+            FP=None, R=None, POWER=None, tail=False, timeBound=None):
     # G: chromosome length, given in cM
     # binMidPoint: given in cM
+    # timeBound: a list of two tuples, for example, [(-2,3), (-4,2)], which gives the time range (in generations, relative to the mean age) of the first and second sampling clusters.
     assert(len(histogram) == len(binMidpoint))
     step = binMidpoint[1] - binMidpoint[0]
 

@@ -264,7 +264,8 @@ def timeSampling_singlePop_2tp_cohort_ind(gap, Ne, nSample=3, chr=range(1,23), m
 
 ################################ multi time points, recording IBD segments between all pairwise sampling cluster #####################
 
-def timeSampling_singlePop_MultiTP_cohort_chrom(Ne, nSamples=[], gaps=[], chr=20, minLen=4.0, record_full_arg=True, demography=None, random_seed=1, endTime=1e3):
+def timeSampling_singlePop_MultiTP_cohort_chrom(Ne=1e3, nSamples=[], gaps=[], chr=20, minLen=4.0, record_full_arg=True, demography=None, \
+            random_seed=1, endTime=1e3, nSamples_model=[], timeInterval=False):
     # Ne: this parameter is ignored if a demography object is given
     path2Map = f"/mnt/archgen/users/yilei/Data/Hapmap/genetic_map_GRCh37_chr{chr}.txt"
     recombMap = msprime.RateMap.read_hapmap(path2Map)
@@ -292,17 +293,18 @@ def timeSampling_singlePop_MultiTP_cohort_chrom(Ne, nSamples=[], gaps=[], chr=20
     bkp_bp = ts.breakpoints(as_array=True)
     bkp_cm = np.array([bp2Morgan(bp, bps, cMs) for bp in bkp_bp])
 
-    if len(nSamples) == 1:
+    nSamples_copy = nSamples if not timeInterval else nSamples_model
+    if len(nSamples_copy) == 1:
         ret, results4IBDNe = ibd_segments_fast(ts, bkp_bp, bkp_cm, within=list(range(0, 2*nSamples[0])), max_time=endTime, minLen=minLen)
         results[(0,0)].extend(ret)
         return results, results4IBDNe, chr
     else:
-        for i in range(len(nSamples)):
-            start_i = 0 if i == 0 else 2*sum(nSamples[:i])
-            end_i = 2*sum(nSamples[:i+1])
-            for j in range(i, len(nSamples)):
-                start_j = 0 if j == 0 else 2*sum(nSamples[:j])
-                end_j = 2*sum(nSamples[:j+1])
+        for i in range(len(nSamples_copy)):
+            start_i = 0 if i == 0 else 2*sum(nSamples_copy[:i])
+            end_i = 2*sum(nSamples_copy[:i+1])
+            for j in range(i, len(nSamples_copy)):
+                start_j = 0 if j == 0 else 2*sum(nSamples_copy[:j])
+                end_j = 2*sum(nSamples_copy[:j+1])
                 if i == j:
                     ret, _ = ibd_segments_fast(ts, bkp_bp, bkp_cm, within=list(range(start_i, end_i)), max_time=endTime, minLen=minLen)
                     results[(i,j)].extend(ret)
@@ -329,11 +331,13 @@ def timeSampling_singlePop_MultiTP_cohort_chrom(Ne, nSamples=[], gaps=[], chr=20
     return results, chr
 
 
-def timeSampling_singlePop_MultiTP_cohort_ind(Ne, nSamples=[], gaps=[], chr=range(1,23), minLen=4.0, record_full_arg=True, demography=None, random_seed=1, endTime=1e3, nprocess=6):
-    prms = [[Ne, nSamples, gaps, chr_, minLen, record_full_arg, demography, random_seed, endTime] for chr_ in chr]
+def timeSampling_singlePop_MultiTP_cohort_ind(Ne=1e3, nSamples=[], gaps=[], chr=range(1,23), minLen=4.0, record_full_arg=True, \
+        demography=None, random_seed=1, endTime=1e3, nprocess=6, nSamples_model=[], timeInterval=False):
+    prms = [[Ne, nSamples, gaps, chr_, minLen, record_full_arg, demography, random_seed, endTime, nSamples_model, timeInterval] for chr_ in chr]
     results = multi_run(timeSampling_singlePop_MultiTP_cohort_chrom, prms, processes=nprocess, output=False)
     aggregated = defaultdict(dict)
-    if len(nSamples) > 1:
+    numSampleCluster = len(nSamples) if not timeInterval else len(nSamples_model)
+    if numSampleCluster > 1:
         for result, chr in results:
             print(f'processing segments from ch{chr}')
             for k, v in result.items():

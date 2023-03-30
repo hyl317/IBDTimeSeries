@@ -281,12 +281,16 @@ def inferVecNe_singlePop_MultiTP_withMask(path2IBD, path2ChrDelimiter, path2mask
             n = nSamples[i]
             if n < minSample or n > maxSample:
                 exSampleCluster.add(i)
-            print(f'{nSamples[i]} samples in age bin {i}: {[k for k, v in sampleAgeBinDict.items() if v == i]}')
+            print(f'{nSamples[i]} samples in age bin {i}({youngest_age + i*merge_level*generation_time} - {youngest_age + (i+1)*merge_level*generation_time}BP): {[k for k, v in sampleAgeBinDict.items() if v == i]}')
         
         for i in exSampleCluster:
             del nSamples[i]
             del gaps[i]
         print(f'Bins {[i for i, _ in gaps.items()]} will be used for inference.')
+        
+        timeOffset = np.min(list(gaps.values()))
+        for i in gaps.keys():
+            gaps[i] -= timeOffset
         
     else:
         gaps = {0:0}

@@ -4,6 +4,8 @@ import numpy as np
 import multiprocessing as mp
 import itertools
 import time
+import random
+from collections import Counter
 
 def readHapMap(path2Map):
     # assume the first row is header, so we ignore it
@@ -492,3 +494,82 @@ def timeSampling_IM_2TP_cohort_ind(demography, nSamples, timeDiff, chr=range(1,2
 ############################################# end of simulations with IM model #######################################################
 ######################################################################################################################################
 ######################################################################################################################################
+
+def timeSampling_IM_2TP_cohort_chrom_timeRange(demography, countNumSampleAtEachTime1, countNumSampleAtEachTime2, chr=20, minLen=4.0, record_full_arg=False, panmictic=False, random_seed=1, endTime=1e3):
+    # Ne: this parameter is ignored if a demography object is given
+    path2Map = f"/mnt/archgen/users/yilei/Data/Hapmap/genetic_map_GRCh37_chr{chr}.txt"
+    recombMap = msprime.RateMap.read_hapmap(path2Map)
+    bps, cMs = readHapMap(path2Map)
+
+    samples = []
+    if not panmictic:
+        for sampleTime, nSample in countNumSampleAtEachTime1.items():
+            samples += [msprime.SampleSet(nSample, population='A', time=sampleTime)]
+        for sampleTime, nSample in countNumSampleAtEachTime2.items():
+            samples += [msprime.SampleSet(nSample, population='B', time=sampleTime)]
+    else:
+        for sampleTime, nSample in countNumSampleAtEachTime1.items():
+            samples += [msprime.SampleSet(nSample, time=sampleTime)]
+        for sampleTime, nSample in countNumSampleAtEachTime2.items():
+            samples += [msprime.SampleSet(nSample, time=sampleTime)]
+
+    # simulate tree sequence
+    t1 = time.time()
+    ts = msprime.sim_ancestry(samples = samples,
+        recombination_rate=recombMap, demography=demography,
+        record_provenance=False, record_full_arg=record_full_arg, end_time=endTime, random_seed=random_seed)
+    print(f'simulating tree seq done for ch{chr}, takes {round(time.time() - t1)}s')
+    # extract IBD segments
+    t1 = time.time()
+    results = defaultdict(list) # a hack to make defaultdict picklable
+
+    ############### use tskit's internal IBD extractor, which should be much faster #########################
+    bkp_bp = ts.breakpoints(as_array=True)
+    bkp_cm = np.array([bp2Morgan(bp, bps, cMs) for bp in bkp_bp])
+
+    nSample1 = sum(n for _, n in countNumSampleAtEachTime1.items())
+    nSample2 = sum(n for _, n in countNumSampleAtEachTime2.items())
+    start_i = 0
+    end_i = 2*nSample1
+    start_j = 2*nSample1
+    end_j = 2*(nSample1 + nSample2)
+    print(f'find IBD between ({start_i}-{end_i}) and ({start_j}-{end_j})')
+    results[(0,1)].extend(ibd_segments_fast(ts, bkp_bp, bkp_cm, \
+            between=[list(range(start_i, end_i)), list(range(start_j, end_j))], \
+            max_time=endTime, minLen=minLen))
+
+    print(f'find IBD within ({start_i}-{end_i})')
+    ret, _ = ibd_segments_fast(ts, bkp_bp, bkp_cm, \
+            within=list(range(start_i, end_i)), max_time=endTime, minLen=minLen)
+    results[(0,0)].extend(ret)
+
+    print(f'find IBD within ({start_j}-{end_j})')
+    ret, _ = ibd_segments_fast(ts, bkp_bp, bkp_cm, \
+            within=list(range(start_j, end_j)), max_time=endTime, minLen=minLen)
+    results[(1,1)].extend(ret)
+
+    print(f'extracting IBD done for ch{chr}, takes {round(time.time() - t1)}s')
+    return results, chr
+
+
+
+def timeSampling_IM_2TP_cohort_ind_timeRange(demography, nSamples, timeDiff, radius=0, chr=range(1,23), minLen=4.0, record_full_arg=False, panmictic=False, random_seed=1, endTime=1e3, nprocess=6):
+    time1 = radius
+    time2 = radius + timeDiff
+    timeRange1 = np.arange(0, 2*radius+1)
+    timeRange2 = np.arange(time2-radius, time2+radius+1)
+    sampledTime1 = random.choices(timeRange1, k=nSamples)
+    countNumSampleAtEachTime1 = Counter(sampledTime1) # a dictionary in the format of time:nSample for population A
+    sampledTime2 = random.choices(timeRange2, k=nSamples)
+    countNumSampleAtEachTime2 = Counter(sampledTime2) # a dictionary in the format of time:nSample for population B
+    print(countNumSampleAtEachTime1)
+    print(countNumSampleAtEachTime2)
+    
+    prms = [[demography, countNumSampleAtEachTime1, countNumSampleAtEachTime2, chr_, minLen, record_full_arg, panmictic, random_seed, endTime] for chr_ in chr]
+    results = multi_run(timeSampling_IM_2TP_cohort_chrom_timeRange, prms, processes=nprocess, output=False)
+    aggregated = defaultdict(dict)
+    for result, chr in results:
+        print(f'processing segments from ch{chr}')
+        for k, v in result.items():
+            aggregated[k][chr] = v # store segments from different chromosomes separately, for bootstraping later
+    return aggregated

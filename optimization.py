@@ -51,7 +51,7 @@ class Optimizer(metaclass=abc.ABCMeta):
         pass
 
     def run(
-        self, x: np.ndarray, tol: np.float64 = 1e-6, max_iter: int = 100
+        self, x: np.ndarray, tol: np.float64 = 1e-6, max_iter: int = 1000
     ) -> np.ndarray:
         """Optimize until convergence criteria are met.
 

@@ -267,25 +267,30 @@ def timeSampling_singlePop_2tp_cohort_ind(gap, Ne, nSample=3, chr=range(1,23), m
 ################################ multi time points, recording IBD segments between all pairwise sampling cluster #####################
 
 def timeSampling_singlePop_MultiTP_cohort_chrom(Ne=1e3, nSamples=[], gaps=[], chr=20, minLen=4.0, record_full_arg=True, demography=None, \
-            random_seed=1, endTime=1e3, nSamples_model=[], timeInterval=False):
+            random_seed=1, endTime=1e3, nSamples_model=[], timeInterval=False, population=None):
     # Ne: this parameter is ignored if a demography object is given
     path2Map = f"/mnt/archgen/users/yilei/Data/Hapmap/genetic_map_GRCh37_chr{chr}.txt"
     recombMap = msprime.RateMap.read_hapmap(path2Map)
     bps, cMs = readHapMap(path2Map)
 
     assert(len(gaps)==len(nSamples))
-    samples = [msprime.SampleSet(nSample, time=gap) for nSample, gap in zip(nSamples, gaps)]
+    if population is None:
+        samples = [msprime.SampleSet(nSample, time=gap) for nSample, gap in zip(nSamples, gaps)]
+    else:
+        samples = [msprime.SampleSet(nSample, time=gap, population=population) for nSample, gap in zip(nSamples, gaps)]
     # simulate tree sequence
     t1 = time.time()
     if not demography:
         ts = msprime.sim_ancestry(
             samples = samples,
             population_size=Ne, recombination_rate=recombMap,
-            record_provenance=False, record_full_arg=record_full_arg, end_time=endTime, random_seed=random_seed)
+            record_provenance=False, record_full_arg=record_full_arg, end_time=endTime, \
+            model=[msprime.DiscreteTimeWrightFisher(duration=500), msprime.StandardCoalescent(),], random_seed=random_seed)
     else:
         ts = msprime.sim_ancestry(samples = samples,
             recombination_rate=recombMap, demography=demography,
-            record_provenance=False, record_full_arg=record_full_arg, end_time=endTime, random_seed=random_seed)
+            record_provenance=False, record_full_arg=record_full_arg, end_time=endTime, \
+            model=[msprime.DiscreteTimeWrightFisher(duration=500), msprime.StandardCoalescent(),], random_seed=random_seed)
     print(f'simulating tree seq done for ch{chr}, takes {round(time.time() - t1)}s')
     # extract IBD segments
     t1 = time.time()
@@ -333,8 +338,8 @@ def timeSampling_singlePop_MultiTP_cohort_chrom(Ne=1e3, nSamples=[], gaps=[], ch
     return results, chr
 
 def timeSampling_singlePop_MultiTP_cohort_ind(Ne=1e3, nSamples=[], gaps=[], chr=range(1,23), minLen=4.0, record_full_arg=True, \
-        demography=None, random_seed=1, endTime=1e3, nprocess=6, nSamples_model=[], timeInterval=False):
-    prms = [[Ne, nSamples, gaps, chr_, minLen, record_full_arg, demography, random_seed, endTime, nSamples_model, timeInterval] for chr_ in chr]
+        demography=None, random_seed=1, endTime=1e3, nprocess=6, nSamples_model=[], timeInterval=False, population=None):
+    prms = [[Ne, nSamples, gaps, chr_, minLen, record_full_arg, demography, random_seed, endTime, nSamples_model, timeInterval, population] for chr_ in chr]
     results = multi_run(timeSampling_singlePop_MultiTP_cohort_chrom, prms, processes=nprocess, output=False)
     aggregated = defaultdict(dict)
     numSampleCluster = len(nSamples) if not timeInterval else len(nSamples_model)

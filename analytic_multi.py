@@ -14,36 +14,39 @@ import warnings
 from pathlib import Path
 import pandas as pd
 import itertools
+import os
+import time
+import math
 
 ch_len_dict = {1:286.279, 2:268.840, 3:223.361, 4:214.688, 5:204.089, 6:192.040, 7:187.221, 8:168.003, 9:166.359, \
         10:181.144, 11:158.219, 12:174.679, 13:125.706, 14:120.203, 15:141.860, 16:134.038, 17:128.491, 18:117.709, \
         19:107.734, 20:108.267, 21:62.786, 22:74.110}
 
 
-def singlePop_MultiTP_given_Ne_negLoglik(Ne, histograms, binMidpoint, G, gaps, nSamples, timeBoundDict):
+def singlePop_MultiTP_given_Ne_negLoglik(Ne, histograms, binMidpoint, G, gaps, nSamples, timeBoundDict, s=0, e=-1, FP=None, R=None, POWER=None):
     accu = 0
     for id, nSample in nSamples.items():
         if nSample == 1:
             continue
         accu += singlePop_2tp_given_Ne_negLoglik(Ne, histograms[(id, id)], binMidpoint, G, gaps[id], gaps[id],\
-            (2*nSample)*(2*nSample-2)/2, [(timeBoundDict[id]), (timeBoundDict[id])])
+            (2*nSample)*(2*nSample-2)/2, [(timeBoundDict[id]), (timeBoundDict[id])], s, e, FP, R, POWER)
     for id1, id2 in itertools.combinations(nSamples.keys(), 2):
         accu += singlePop_2tp_given_Ne_negLoglik(Ne, histograms[(min(id1, id2), max(id1, id2))], binMidpoint, \
                 G, gaps[id1], gaps[id2], (2*nSamples[id1])*(2*nSamples[id2]),\
-                [(timeBoundDict[id1]), (timeBoundDict[id2])])
+                [(timeBoundDict[id1]), (timeBoundDict[id2])], s, e, FP, R, POWER)
     return accu
 
-def inferConstNe_singlePop_MultiTP(histograms, binMidpoint, gaps, nSamples, Ninit, chrlens, timeBoundDict):
+def inferConstNe_singlePop_MultiTP(histograms, binMidpoint, gaps, nSamples, Ninit, chrlens, timeBoundDict, s=0, e=-1, FP=None, R=None, POWER=None):
     # given the observed ibd segments, estimate the Ne assuming a constant effective Ne
     # gaps: dictionary, where the key is the sampling cluter index and the value is the sampling time
     # nSamples: dictionary, where the key is the sampling cluster index and the value is the number of diploid samples within each cluster
 
-    kargs = (histograms, binMidpoint, chrlens, gaps, nSamples, timeBoundDict)
+    kargs = (histograms, binMidpoint, chrlens, gaps, nSamples, timeBoundDict, s, e, FP, R, POWER)
     res = minimize(singlePop_MultiTP_given_Ne_negLoglik, Ninit, args=kargs, method='L-BFGS-B', bounds=[(10, 5e6)])
     return res.x[0]
 
 
-def singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, G, gaps, nSamples, Tmax, alpha, beta, timeBoundDict, s=0, e=-1, FP=None, R=None, POWER=None, tail=False):
+def singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, G, gaps, nSamples, Tmax, alpha, beta, timeBoundDict, Nconst, s=0, e=-1, FP=None, R=None, POWER=None, tail=False):
     # return the negative loglikelihood of Ne, plus the penalty term
     # G: a vector of chromosome length
     # gaps: dictionary, where the key is the sampling cluter index and the value is the sampling time
@@ -86,6 +89,7 @@ def singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, G, gaps
         grad += alpha*penalty_grad1/Ne
 
     if beta != 0:
+        ################################### weighted first derivative penalty 
         sigma = (len(Ne)-1)/3
         weights = norm.pdf(np.arange(1, len(Ne)), loc=len(Ne)-1, scale=sigma)
         weights = weights/weights[-1]
@@ -103,6 +107,12 @@ def singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, G, gaps
         # penalty_grad2[0] = -(2*Ne_[1] - 2*Ne_[0])
         # penalty_grad2[-1] = 2*Ne_[-1] - 2*Ne_[-2]
         grad += beta*penalty_grad2/Ne
+        ###########################################################################
+        ### diff to estimated constant Ne #########################################
+        # penalty3 = beta*np.sum((np.log(Ne) - np.log(Nconst))**2)
+        # accu += penalty3
+        # grad += beta*2*(np.log(Ne) - np.log(Nconst))/Ne
+        
 
     return accu, grad
 
@@ -112,8 +122,16 @@ def bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, timeB
     # perform one bootstrap resampling
 
     ###################### First, infer a const Ne ################################
-    histograms, binMidpoint, chrlens = prepare_input(ibds_by_chr, ch_ids, ch_len_dict, nSamples.keys(), minL=minL_infer, maxL=maxL_infer, step=step)
-    Nconst = inferConstNe_singlePop_MultiTP(histograms, binMidpoint, gaps, nSamples, Ninit, chrlens, timeBoundDict)
+    histograms, binMidpoint, chrlens = prepare_input(ibds_by_chr, ch_ids, ch_len_dict, nSamples.keys(), minL=minL_calc, maxL=maxL_calc, step=step)
+    bins_infer = np.arange(minL_infer, maxL_infer+step, step)
+    binMidpoint_infer = (bins_infer[1:] + bins_infer[:-1])/2
+    s = np.where(np.isclose(binMidpoint, binMidpoint_infer[0]))[0][0]
+    e = np.where(np.isclose(binMidpoint, binMidpoint_infer[-1]))[0][0]
+    if (not FP is None) and (not R is None) and (not POWER is None):
+        assert(len(FP) == len(binMidpoint))
+        assert(len(POWER) == len(binMidpoint))
+        assert(R.shape[0] == R.shape[1] == len(binMidpoint))
+    Nconst = inferConstNe_singlePop_MultiTP(histograms, binMidpoint, gaps, nSamples, Ninit, chrlens, timeBoundDict, s, e, FP, R, POWER)
     if verbose:
         print(f'estimated constant Ne: {Nconst}')
     ################################################################################
@@ -136,24 +154,48 @@ def bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, timeB
     for k, v in gaps.items():
         gaps_adjusted[k] = v + abs(t_min)
 
+    #NinitVec = np.full(Tmax + (t_max - t_min), Nconst)
+    #NinitVec = np.exp(np.random.normal(np.log(Nconst), np.log(Nconst)/25, Tmax + (t_max - t_min)))
+    # NinitVec = np.random.normal(Nconst, Nconst/25, Tmax + (t_max - t_min))
+    NinitVec = np.full(Tmax + (t_max - t_min), np.nan)
+    for id in nSamples.keys():
+        ibds_, nSamples_ = {}, {}
+        ibds_[(id,id)] = ibds_by_chr[(id,id)]
+        nSamples_[id] = nSamples[id]
+        histograms_, binMidpoint_, G_ = prepare_input(ibds_, np.arange(1,23), ch_len_dict, nSamples_.keys(), minL=minL_calc, maxL=maxL_calc, step=step)
+        constNe = inferConstNe_singlePop_MultiTP(histograms_, binMidpoint_, {id:0}, nSamples_, Ninit, G_, timeBoundDict, s, e, FP, R, POWER)
+        if verbose:
+            print(f'constNe for {id} is {constNe}')
+        NinitVec[gaps[id]] = constNe
+    timeAnchor = np.sort(list(gaps.values()))
+    if len(timeAnchor) == 1:
+        Nconst = NinitVec[timeAnchor[0]]
+        NinitVec = np.random.normal(Nconst, Nconst/20, Tmax + (t_max - t_min))
+    else:
+        for i in range(len(timeAnchor)-1):
+            # note the direction of time
+            end, start = timeAnchor[i], timeAnchor[i+1]
+            Nend, Nstart = NinitVec[end], NinitVec[start]
+            # fit an exponential growth in between Nend and Nstart
+            if i == 0:
+                end = 0 # where there is timeBound, timeAnchor[0] may not be 0; so we set it to be 0 to extend the exponential growth to the very beginning
+            t = np.arange(start-end)[::-1]
+            NinitVec[end:start] = Nstart*np.exp((t/(start-end))*np.log(Nend/Nstart))
+            if i == len(timeAnchor)-2:
+                NinitVec[start:] = np.random.normal(NinitVec[start], NinitVec[start]/20, Tmax + (t_max - t_min) - start)
+    if verbose:
+        print(f'NinitVec: {NinitVec}')
+    assert(~np.isnan(NinitVec).any())  
 
-    bins_infer = np.arange(minL_infer, maxL_infer+step, step)
-    binMidpoint_infer = (bins_infer[1:] + bins_infer[:-1])/2
-    s = np.where(np.isclose(binMidpoint, binMidpoint_infer[0]))[0][0]
-    e = np.where(np.isclose(binMidpoint, binMidpoint_infer[-1]))[0][0]
-    if (not FP is None) and (not R is None) and (not POWER is None):
-        assert(len(FP) == len(binMidpoint))
-        assert(len(POWER) == len(binMidpoint))
-        assert(R.shape[0] == R.shape[1] == len(binMidpoint))
-
-    kargs = (histograms, binMidpoint, chrlens, gaps_adjusted, nSamples, Tmax, alpha, beta, timeBoundDict, s, e+1, FP, R, POWER)
-    NinitVec = np.exp(np.random.normal(np.log(Nconst), np.log(Nconst)/25, Tmax + (t_max - t_min)))
+    kargs = (histograms, binMidpoint, chrlens, gaps_adjusted, nSamples, Tmax, alpha, beta, timeBoundDict, Nconst, s, e+1, FP, R, POWER)  
     
     if method == 'l2':
+        t1 = time.time()
         res = minimize(singlePop_MultiTP_given_vecNe_negLoglik, NinitVec, \
                 args=kargs, method='L-BFGS-B', jac=True, bounds=[(10, 5e6) for i in range(Tmax + (t_max - t_min))], options={'maxfun': 50000, 'maxiter':50000})
         if verbose:
             print(res)
+        print(f'elapsed time for optimization: {time.time() - t1}')
         return res.x
     elif method == 'l1':
         res = AccProx_trendFiltering_l1(NinitVec, *kargs)
@@ -202,9 +244,10 @@ def prepare_input(ibds_by_chr, ch_ids, ch_len_dict, sampleIDs, minL=4.0, maxL=20
     return histograms, binMidpoint, np.array(chrlens)
 
 
-def inferVecNe_singlePop_MultiTP(ibds_by_chr, gaps, nSamples, ch_len_dict, timeBound=None, Ninit=500, Tmax=100, \
+def inferVecNe_singlePop_MultiTP(ibds_by_chr, gaps, nSamples, ch_len_dict, timeBoundDict=None, Ninit=500, Tmax=100, \
         minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0,
-        step=0.1, alpha=1e-6, beta=1e-4, method='l2', FP=None, R=None, POWER=None, nprocess=6, plot=False, prefix="", doBootstrap=True, outFolder='.'):
+        step=0.1, alpha=1e-6, beta=1e-4, method='l2', FP=None, R=None, POWER=None, nprocess=6, plot=False, prefix="", \
+        verbose=True, doBootstrap=True, outFolder='.'):
     """
     Parameter
     ---------
@@ -224,34 +267,44 @@ def inferVecNe_singlePop_MultiTP(ibds_by_chr, gaps, nSamples, ch_len_dict, timeB
 
     # estimate Ne using the original data
     ch_ids = [k for k, v in ch_len_dict.items()]
-    if not timeBound:
-        timeBound = {}
+    if not timeBoundDict:
+        timeBoundDict = {}
         for id, _ in nSamples.items():
-            timeBound[id] = (0, 0)
+            timeBoundDict[id] = (0, 0)
 
     assert(np.min(list(gaps.values())) == 0) # the most recent sample cluster must be labeled as generation 0
-    Ne = bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, timeBound, Ninit=Ninit, Tmax=Tmax, \
+    Ne = bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, timeBoundDict, Ninit=Ninit, Tmax=Tmax, \
         minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, \
-        step=step, alpha=alpha, beta=beta, method=method, FP=FP, R=R, POWER=POWER, verbose=True)
+        step=step, alpha=alpha, beta=beta, method=method, FP=FP, R=R, POWER=POWER, verbose=verbose)
     if plot:
         if len(prefix) > 0:
             plot_prefix = "pairwise." + prefix
         else:
             plot_prefix = "pairwise"
-        plot_pairwise_fitting(ibds_by_chr, gaps, nSamples, ch_len_dict, Ne, outFolder, prefix=plot_prefix, \
-            minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL=maxL_infer, step=step, minL_plot=6.0, FP=FP, R=R, POWER=POWER)
-        plot_pairwise_TMRCA(gaps, Ne, Tmax, outFolder, prefix=plot_prefix, minL=minL_infer, maxL=maxL_infer, step=0.25)
+        min_plot = math.floor(min(itertools.chain.from_iterable(ibdlist for dict in ibds_by_chr.values() for ibdlist in dict.values())))
+        print(f'minL for plotting: {min_plot}')
+        plot_pairwise_fitting(ibds_by_chr, gaps, nSamples, ch_len_dict, Ne, outFolder, timeBoundDict, prefix=plot_prefix, \
+            minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL=maxL_infer, step=step, minL_plot=min_plot, FP=FP, R=R, POWER=POWER)
+        #plot_pairwise_TMRCA(gaps, Ne, Tmax, outFolder, prefix=plot_prefix, minL=minL_infer, maxL=maxL_infer, step=0.25)
 
     if doBootstrap:
         # start bootstrapping
         nresample = 200
         ch_ids = [k for k, v in ch_len_dict.items()]
         resample_chrs = [ np.random.choice(ch_ids, size=len(ch_ids)) for i in range(nresample)]
-        lowCI, upCI = bootstrap(bootstrap_single_run, resample_chrs, nprocess, False, ibds_by_chr, gaps, nSamples, ch_len_dict, timeBound, Ninit, Tmax, \
-            minL_calc, maxL_calc, minL_infer, maxL_infer, step, alpha, beta, method, FP, R, POWER)
-        return Ne, lowCI, upCI
+        # create an empty pandas dataframe with three columns named Ne, lowCI, upCI
+        df = pd.DataFrame(columns=['Generations', 'Ne', 'lowCI', 'upCI'])
+        lowCI, upCI = bootstrap(bootstrap_single_run, resample_chrs, nprocess, False, ibds_by_chr, gaps, nSamples, ch_len_dict, timeBoundDict, Ninit, Tmax, \
+            minL_calc, maxL_calc, minL_infer, maxL_infer, step, alpha, beta, method, FP, R, POWER, False)
+        df['Generations'] = np.arange(1, len(Ne)+1)
+        df['Ne'] = Ne
+        df['lowCI'] = lowCI
+        df['upCI'] = upCI
     else:
-        return Ne
+        df = pd.DataFrame(columns=['Generatioins', 'Ne'])
+        df['Generations'] = np.arange(1, len(Ne)+1)
+        df['Ne'] = Ne
+    return df
 
 
 def inferVecNe_singlePop_MultiTP_withMask(path2IBD, path2ChrDelimiter, path2mask=None, nSamples=-1, path2SampleAge=None, \
@@ -398,18 +451,12 @@ def inferVecNe_singlePop_MultiTP_withMask(path2IBD, path2ChrDelimiter, path2mask
                 else:
                     continue
 
-
+    filename = 'ibds_by_chr.pickle' if len(prefix) == 0 else 'ibds_by_chr.' + prefix + '.pickle'
+    pickle.dump(ibds_by_chr, open(os.path.join(outFolder, filename), 'wb'))
     ### end of preprocessing of input data, ready to start the inference
-    if doBootstrap:
-        Ne, lowCI, highCI = inferVecNe_singlePop_MultiTP(ibds_by_chr, gaps, nSamples, ch_len_dict, Ninit=Ninit, Tmax=Tmax, \
+    return inferVecNe_singlePop_MultiTP(ibds_by_chr, gaps, nSamples, ch_len_dict, Ninit=Ninit, Tmax=Tmax, \
                 minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, step=step, alpha=alpha, beta=beta, \
                 method=method, FP=FP, R=R, POWER=POWER, plot=True, prefix=prefix, doBootstrap=doBootstrap, outFolder=outFolder)
-        return Ne, lowCI, highCI
-    else:
-        Ne = inferVecNe_singlePop_MultiTP(ibds_by_chr, gaps, nSamples, ch_len_dict, Ninit=Ninit, Tmax=Tmax, \
-                minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, step=step, alpha=alpha, beta=beta, \
-                method=method, FP=FP, R=R, POWER=POWER, plot=True, prefix=prefix, doBootstrap=doBootstrap, outFolder=outFolder)
-        return Ne
 
 
 
@@ -483,8 +530,8 @@ def inferConstCoalRate_twoPopIM_MultiTP(histograms, binMidpoint, npairs, timeDif
     res = minimize(twoPopIM_MultiTP_given_coalrate_negLoglik, coalRateInit, args=kargs, method='L-BFGS-B', bounds=[(1e-10, 0.1)])
     return res.x[0]
 
-def twoPop_IM_given_vecCoalRates_negLoglik(coalRates, histograms, binMidpoint, G, npairs, timeGap,\
-        alpha, beta, s=0, e=-1, FP=None, R=None, POWER=None):
+def twoPop_IM_given_vecCoalRates_negLoglik(coalRates, histograms, binMidpoint, G, npairs, time1, time2,\
+        alpha, beta, timeBound=None, s=0, e=-1, FP=None, R=None, POWER=None):
     # return the negative loglikelihood of Ne, plus the penalty term
     # G: a vector of chromosome length
     # gaps: dictionary, where the key is the sampling cluter index and the value is the sampling time
@@ -492,9 +539,8 @@ def twoPop_IM_given_vecCoalRates_negLoglik(coalRates, histograms, binMidpoint, G
 
     accu, grad = twoPopIM_given_vecCoalRates_negLoglik_noPenalty(coalRates, \
                 histograms, binMidpoint, G, 4*npairs,\
-                timeGap, s=s, e=e, FP=FP, R=R, POWER=POWER)
+                time1, time2, timeBound, s=s, e=e, FP=FP, R=R, POWER=POWER)
     
-    ### try log transform
     coalRates_ = np.copy(coalRates)
 
     if alpha != 0 :
@@ -539,36 +585,47 @@ def prepare_input_twoPopIM(ibds_by_chr, ch_ids, ch_len_dict, minL=4.0, maxL=20.0
 
 
 
-def bootstrap_single_run_twoPopIM(ch_ids, ibds_by_chr, npairs, timeDiff, ch_len_dict, coalRateInit=1e-3, Tmax=100, \
+def bootstrap_single_run_twoPopIM(ch_ids, ibds_by_chr, npairs, time1, time2, ch_len_dict, timeBound=None, coalRateInit=1e-3, Tmax=100, \
         minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0, \
         step=0.1, alpha=1e10, beta=1e10, FP=None, R=None, POWER=None, verbose=False):
     # perform one bootstrap resampling
+    # check that time has been "normalized"
+    assert(min(time1, time2) == 0)
 
     ###################### First, infer a const Ne ################################
     histograms, binMidpoint, chrlens = prepare_input_twoPopIM(ibds_by_chr, ch_ids, ch_len_dict, minL=minL_infer, maxL=maxL_infer, step=step)
-    coalRateConst = inferConstCoalRate_twoPopIM_MultiTP(histograms, binMidpoint, npairs, timeDiff, coalRateInit, chrlens)
+    coalRateConst = inferConstCoalRate_twoPopIM_MultiTP(histograms, binMidpoint, npairs, abs(time1 - time2), coalRateInit, chrlens)
     if verbose:
         print(f'estimated constant coalescent rate: {coalRateConst}')
     ################################################################################
     histograms, binMidpoint, chrlens = prepare_input_twoPopIM(ibds_by_chr, ch_ids, ch_len_dict, minL=minL_calc, maxL=maxL_calc, step=step)
-
 
     bins_infer = np.arange(minL_infer, maxL_infer+step, step)
     binMidpoint_infer = (bins_infer[1:] + bins_infer[:-1])/2
     s = np.where(np.isclose(binMidpoint, binMidpoint_infer[0]))[0][0]
     e = np.where(np.isclose(binMidpoint, binMidpoint_infer[-1]))[0][0]
     if (not FP is None) and (not R is None) and (not POWER is None):
-        print(len(FP))
-        print(len(binMidpoint))
         assert(len(FP) == len(binMidpoint))
         assert(len(POWER) == len(binMidpoint))
         assert(R.shape[0] == R.shape[1] == len(binMidpoint))
 
-    kargs = (histograms, binMidpoint, chrlens, npairs, timeDiff, alpha, beta, s, e+1, FP, R, POWER)
+    if timeBound != None:
+        low1, high1 = time1 + timeBound[0][0], time1 + timeBound[0][1]
+        low2, high2 = time2 + timeBound[1][0], time2 + timeBound[1][1]
+        startingTime = max(low1, low2) # this is the most recent time point for which pop1 and pop2 are temporally overlapping, so this is the time point from which cross-coalescence rate will be estimated backward in time
+        vecl = Tmax + (max(high1, high2) - startingTime)
+        time1 -= startingTime
+        time2 -= startingTime # normalize with respect to starting time. this should make it easier to index into coalRates vector.
+        #### print some sanity check info ####
+        print(f'starting time: {startingTime}')
+        print(f'after normalizing, time1: {time1}, time2: {time2}')
+        print(f'vector length: {vecl}')
+
+    kargs = (histograms, binMidpoint, chrlens, npairs, time1, time2, alpha, beta, timeBound, s, e+1, FP, R, POWER)
     Nconst = 1/(2*coalRateConst)
-    coalInitVec = 1/(2*np.exp(np.random.normal(np.log(Nconst), np.log(Nconst)/25, Tmax)))
+    coalInitVec = 1/(2*np.exp(np.random.normal(np.log(Nconst), np.log(Nconst)/25, vecl)))
     res = minimize(twoPop_IM_given_vecCoalRates_negLoglik, coalInitVec, \
-        args=kargs, method='L-BFGS-B', jac=True, bounds=[(1e-10, 0.1) for i in range(Tmax)], options={'maxfun': 50000, 'maxiter':50000})
+        args=kargs, method='L-BFGS-B', jac=True, bounds=[(1e-10, 0.1) for i in range(vecl)], options={'maxfun': 50000, 'maxiter':50000})
     if verbose:
         print(res)
     return res.x
@@ -576,7 +633,7 @@ def bootstrap_single_run_twoPopIM(ch_ids, ibds_by_chr, npairs, timeDiff, ch_len_
 
 
 
-def inferCoalRates_twoPopIM_twoTP(ibds_by_chr, npairs, timeDiff, ch_len_dict, coalRateInit=1e-3, Tmax=100, \
+def inferCoalRates_twoPopIM_twoTP(ibds_by_chr, npairs, time1, time2, ch_len_dict, timeBound=None, coalRateInit=1e-3, Tmax=100, \
         minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0, step=0.1, alpha=1e10, beta=1e10, FP=None, R=None, POWER=None, \
         doBootstrap=True, nprocess=6, plot=True, outFolder=".", prefix=""):
 
@@ -598,13 +655,13 @@ def inferCoalRates_twoPopIM_twoTP(ibds_by_chr, npairs, timeDiff, ch_len_dict, co
 
     # estimate Ne using the original data
     ch_ids = [k for k, v in ch_len_dict.items()]
-    coals = bootstrap_single_run_twoPopIM(ch_ids, ibds_by_chr, npairs, timeDiff, ch_len_dict, \
+    coals = bootstrap_single_run_twoPopIM(ch_ids, ibds_by_chr, npairs, time1, time2, ch_len_dict, timeBound=timeBound, \
         coalRateInit=coalRateInit, Tmax=Tmax, minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, \
         step=step, alpha=alpha, beta=beta, FP=FP, R=R, POWER=POWER, verbose=True)
 
     if plot:
-        plotPosteriorTMRCA(coals, timeDiff, minL=minL_infer, maxL=maxL_infer, step=step, outFolder=outFolder, prefix=prefix)
-        plot2PopIMfit(coals, ibds_by_chr, ch_len_dict, timeDiff, npairs, minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, step=step, FP=FP, R=R, POWER=POWER, outFolder=outFolder, prefix=prefix)
+        plotPosteriorTMRCA(coals, abs(time1 - time2), minL=minL_infer, maxL=maxL_infer, step=step, outFolder=outFolder, prefix=prefix)
+        plot2PopIMfit(coals, ibds_by_chr, ch_len_dict, npairs, time1, time2, timeBound=timeBound, minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, step=step, FP=FP, R=R, POWER=POWER, outFolder=outFolder, prefix=prefix)
 
     # start bootstrapping
     if doBootstrap:
@@ -612,13 +669,13 @@ def inferCoalRates_twoPopIM_twoTP(ibds_by_chr, npairs, timeDiff, ch_len_dict, co
         ch_ids = [k for k, v in ch_len_dict.items()]
         resample_chrs = [ np.random.choice(ch_ids, size=len(ch_ids)) for i in range(nresample)]
         lowCoals, upCoals, bootstrapFullResult = bootstrap(bootstrap_single_run_twoPopIM, resample_chrs, nprocess, True, ibds_by_chr, npairs, \
-                timeDiff, ch_len_dict, coalRateInit, Tmax, \
+                time1, time2, ch_len_dict, timeBound, coalRateInit, Tmax, \
                 minL_calc, maxL_calc, minL_infer, maxL_infer, step, alpha, beta, FP, R, POWER)
         return coals, lowCoals, upCoals, bootstrapFullResult
     else:
         return coals
 
-def inferCoalRates_twoPopIM(ibds, nSamples1, nSamples2, time1, time2, ch_len_dict, coalRateInit=1e-3, Tmax=100, \
+def inferCoalRates_twoPopIM(ibds, nSamples1, nSamples2, time1, time2, ch_len_dict, timeBound=None, coalRateInit=1e-3, Tmax=100, \
         minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0, step=0.1, alpha=5e10, beta=1e10, FP=None, R=None, POWER=None, \
         doBootstrap=True, nprocess=6, plot=True, outFolder=".", prefix=""):
     """
@@ -638,6 +695,9 @@ def inferCoalRates_twoPopIM(ibds, nSamples1, nSamples2, time1, time2, ch_len_dic
         Sampling time of population2, expressed in terms of generations before present
     ch_len_dict: dict
         A dictionary of chromosome length (in cM). The key-value pair is the genetic length (value) of each chromosome (key).
+    timeBound: list of two tuples
+        Specifies the sampling time uncertainty of the two populations. For example, [(-2,2), (-3,3)] states that the first population's
+        dating interval is -2, 2 generations away from $time1, and similarly the second population's dating interval is -3, 3 generations away from $time2.
     coalRateInit: float
         Initial search value for coalescence rates.
     Tmax: int
@@ -661,13 +721,16 @@ def inferCoalRates_twoPopIM(ibds, nSamples1, nSamples2, time1, time2, ch_len_dic
 
 
     """
+    if timeBound == None:
+        timeBound = [(0,0), (0,0)]
 
     #### infer coalescent rate within population 1
     if len(prefix) == 0:
         prefix1 = 'pop1'
     else:
         prefix1 = prefix + '.pop1'
-    ret = inferCoalRates_twoPopIM_twoTP(ibds[(0,0)], nSamples1*(nSamples1-1)/2, 0, ch_len_dict, \
+    ret = inferCoalRates_twoPopIM_twoTP(ibds[(0,0)], nSamples1*(nSamples1-1)/2, 0, 0, ch_len_dict, \
+        timeBound=[timeBound[0], timeBound[0]],\
         coalRateInit=coalRateInit, Tmax=Tmax, minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, \
         step=step, alpha=alpha, beta=beta, FP=FP, R=R, POWER=POWER, \
         doBootstrap=doBootstrap, nprocess=nprocess, plot=plot, outFolder=outFolder, prefix=prefix1)
@@ -681,7 +744,8 @@ def inferCoalRates_twoPopIM(ibds, nSamples1, nSamples2, time1, time2, ch_len_dic
         prefix2 = 'pop2'
     else:
         prefix2 = prefix + '.pop2'
-    ret = inferCoalRates_twoPopIM_twoTP(ibds[(1,1)], nSamples2*(nSamples2-1)/2, 0, ch_len_dict, \
+    ret = inferCoalRates_twoPopIM_twoTP(ibds[(1,1)], nSamples2*(nSamples2-1)/2, 0, 0, ch_len_dict, \
+        timeBound=[timeBound[1], timeBound[1]], \
         coalRateInit=coalRateInit, Tmax=Tmax, minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, \
         step=step, alpha=alpha, beta=beta, FP=FP, R=R, POWER=POWER, \
         doBootstrap=doBootstrap, nprocess=nprocess, plot=plot, outFolder=outFolder, prefix=prefix2)
@@ -691,11 +755,15 @@ def inferCoalRates_twoPopIM(ibds, nSamples1, nSamples2, time1, time2, ch_len_dic
         coals2_ = ret
 
     #### infer coalescent rate across pop1 and pop2
+    # normalize time
+    time1 -= min(time1, time2)
+    time2 -= min(time1, time2)
+
     if len(prefix) == 0:
         prefix12 = 'pop12'
     else:
         prefix12 = prefix + '.pop12'
-    ret = inferCoalRates_twoPopIM_twoTP(ibds[(0,1)], nSamples1*nSamples2, abs(time1 - time2), ch_len_dict, \
+    ret = inferCoalRates_twoPopIM_twoTP(ibds[(0,1)], nSamples1*nSamples2, time1, time2, ch_len_dict, timeBound=timeBound, \
         coalRateInit=coalRateInit, Tmax=Tmax, minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, \
         step=step, alpha=alpha, beta=beta, FP=FP, R=R, POWER=POWER, \
         doBootstrap=doBootstrap, nprocess=nprocess, plot=plot, outFolder=outFolder, prefix=prefix12)
@@ -705,82 +773,84 @@ def inferCoalRates_twoPopIM(ibds, nSamples1, nSamples2, time1, time2, ch_len_dic
         coals12_ = ret
 
     #### gather some summary of the output
+
+    offset = min(abs(timeBound[0][0]), abs(timeBound[1][0]))
+    time1 += offset
+    time2 += offset
+    vecl = Tmax + max(time1 + timeBound[0][1], time2 + timeBound[1][1])
+
     if len(prefix) == 0:
         fname = f'{outFolder}/twoPopIM.coalescence_rates.txt'
     else:
         fname = f'{outFolder}/{prefix}.twoPopIM.coalescence_rates.txt'
 
-    # normalize time
-    time1 -= min(time1, time2)
-    time2 -= min(time1, time2)
-    vecl = abs(time1 - time2) + Tmax
-
     if doBootstrap:
         coals1, lows1, highs1 = np.full(vecl, np.nan), np.full(vecl, np.nan), np.full(vecl, np.nan)
-        coals1[time1:time1+Tmax] = coals1_
-        lows1[time1:time1+Tmax] = lows1_
-        highs1[time1:time1+Tmax] = highs1_
+        start = time1 + timeBound[0][0]
+        end = time1 + timeBound[0][1] + Tmax
+        coals1[start:end] = coals1_
+        lows1[start:end] = lows1_
+        highs1[start:end] = highs1_
 
         coals2, lows2, highs2 = np.full(vecl, np.nan), np.full(vecl, np.nan), np.full(vecl, np.nan)
-        coals2[time2:time2+Tmax] = coals2_
-        lows2[time2:time2+Tmax] = lows2_
-        highs2[time2:time2+Tmax] = highs2_
+        start = time2 + timeBound[1][0]
+        end = time2 + timeBound[1][1] + Tmax
+        coals2[start:end] = coals2_
+        lows2[start:end] = lows2_
+        highs2[start:end] = highs2_
 
         coals12, lows12, highs12 = np.full(vecl, np.nan), np.full(vecl, np.nan), np.full(vecl, np.nan)
-        s = max(time1, time2)
-        coals12[s:s+Tmax] = coals12_
-        lows12[s:s+Tmax] = lows12_
-        highs12[s:s+Tmax] = highs12_
+        s = max(time1+timeBound[0][0], time2+timeBound[1][0])
+        coals12[s:s+len(coals12_)] = coals12_
+        lows12[s:s+len(lows12_)] = lows12_
+        highs12[s:s+len(highs12_)] = highs12_
 
         ###### now compute R and its CI, where R is defined by 2*lambda_12/(lambda_11+lambda_22)
-        diff = abs(time1 - time2)
-        if diff > 0:
-            if time1 > time2:
-                Rboot = 2*fullBoot12[:, :-diff]/(fullBoot1[:,:-diff] + fullBoot2[:,diff:])
-                R_ = 2*coals12_[:-diff]/(coals1_[:-diff] + coals2_[diff:])
-            else:
-                Rboot = 2*fullBoot12[:, :-diff]/(fullBoot1[:, diff:] + fullBoot2[:, :-diff])
-                R_ = 2*coals12_[:-diff]/(coals1_[diff:] + coals2_[:-diff])
-        else:
-            Rboot = 2*fullBoot12/(fullBoot1 + fullBoot2)
-            R_ = 2*coals12_/(coals1_ + coals2_)
+        # diff = abs(time1 - time2)
+        # if diff > 0:
+        #     if time1 > time2:
+        #         Rboot = 2*fullBoot12[:, :-diff]/(fullBoot1[:,:-diff] + fullBoot2[:,diff:])
+        #         R_ = 2*coals12_[:-diff]/(coals1_[:-diff] + coals2_[diff:])
+        #     else:
+        #         Rboot = 2*fullBoot12[:, :-diff]/(fullBoot1[:, diff:] + fullBoot2[:, :-diff])
+        #         R_ = 2*coals12_[:-diff]/(coals1_[diff:] + coals2_[:-diff])
+        # else:
+        #     Rboot = 2*fullBoot12/(fullBoot1 + fullBoot2)
+        #     R_ = 2*coals12_/(coals1_ + coals2_)
 
-        nSamples = Rboot.shape[0]
-        Rsorted = np.sort(Rboot, axis=0)
-        index = int(2.5/(100/nSamples))
-        R, lowsR, highsR = np.full(vecl, np.nan), np.full(vecl, np.nan), np.full(vecl, np.nan)
-        R[s:s+Tmax-diff] = R_
-        lowsR[s:s+Tmax-diff] = Rsorted[index-1]
-        highsR[s:s+Tmax-diff] = Rsorted[-index]
+        # nSamples = Rboot.shape[0]
+        # Rsorted = np.sort(Rboot, axis=0)
+        # index = int(2.5/(100/nSamples))
+        # R, lowsR, highsR = np.full(vecl, np.nan), np.full(vecl, np.nan), np.full(vecl, np.nan)
+        # R[s:s+Tmax-diff] = R_
+        # lowsR[s:s+Tmax-diff] = Rsorted[index-1]
+        # highsR[s:s+Tmax-diff] = Rsorted[-index]
 
-        ret = pd.DataFrame(pd.DataFrame({'Generation': np.arange(1, 1 + abs(time1-time2) + Tmax), 
+        ret = pd.DataFrame(pd.DataFrame({'Generation': np.arange(1, 1 + vecl), 
                     'pop1_coalrate': coals1, 'pop1_coalrate_lowCI': lows1, 'pop1_coalrate_highCI': highs1, 
                     'pop2_coalrate': coals2, 'pop2_coalrate_lowCI': lows2, 'pop2_coalrate_highCI': highs2, 
-                    'cross_coalrate': coals12, 'cross_coalrate_lowCI': lows12, 'cross_coalrate_highCI': highs12,
-                    'R': R, 'R_lowCI': lowsR, 'R_highCI': highsR}))
+                    'cross_coalrate': coals12, 'cross_coalrate_lowCI': lows12, 'cross_coalrate_highCI': highs12}))
         ret.to_csv(fname, index=False)
     else:
         coals1, coals2, coals12 = np.full(vecl, np.nan), np.full(vecl, np.nan), np.full(vecl, np.nan)
-        R = np.full(vecl, np.nan)
-        coals1[time1:time1+Tmax] = coals1_
-        coals2[time2:time2+Tmax] = coals2_
-        s = max(time1, time2)
-        coals12[s:s+Tmax] = coals12_
+        coals1[time1 + timeBound[0][0]:time1 + timeBound[0][1] + Tmax] = coals1_
+        coals2[time2 + timeBound[1][0]:time2 + timeBound[1][1] + Tmax] = coals2_
+        s = max(time1+timeBound[0][0], time2+timeBound[1][0])
+        coals12[s:s+len(coals12_)] = coals12_
         
-        diff = abs(time1 - time2)
-        if diff > 0:
-            if time1 > time2:
-                R_ = 2*coals12_[:-diff]/(coals1_[:-diff] + coals2_[diff:])
-            else:
-                R_ = 2*coals12_[:-diff]/(coals1_[diff:] + coals2_[:-diff])
-        else:
-            R_ = 2*coals12_/(coals1_ + coals2_)
-        R[s:s+Tmax-diff] = R_
-        ret = pd.DataFrame(pd.DataFrame({'Generation': np.arange(1, 1 + abs(time1-time2) + Tmax), 
+        # diff = abs(time1 - time2)
+        # if diff > 0:
+        #     if time1 > time2:
+        #         R_ = 2*coals12_[:-diff]/(coals1_[:-diff] + coals2_[diff:])
+        #     else:
+        #         R_ = 2*coals12_[:-diff]/(coals1_[diff:] + coals2_[:-diff])
+        # else:
+        #     R_ = 2*coals12_/(coals1_ + coals2_)
+        # R[s:s+Tmax-diff] = R_
+        ret = pd.DataFrame(pd.DataFrame({'Generation': np.arange(1, 1 + vecl), 
                     'pop1_coalrate': coals1, 
                     'pop2_coalrate': coals2, 
-                    'cross_coalrate': coals12,
-                    'R': R}))
+                    'cross_coalrate': coals12}))
         ret.to_csv(fname, index=False)
 
 

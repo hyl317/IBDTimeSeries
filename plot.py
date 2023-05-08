@@ -1,5 +1,6 @@
 # some plotting function for ease of visualizing and interpreting the results
 
+import os
 import math
 import matplotlib.gridspec as gridspec
 import itertools
@@ -8,7 +9,7 @@ import matplotlib.pyplot as plt
 from scipy.special import logsumexp
 from analytic import singlePop_2tp_given_vecNe, singlePop_2tp_given_vecNe_withError, computePosteriorTMRCA, twoPopIM_given_coalRate, twoPopIM_given_coalRate_withError
 
-def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, prefix="pairwise", \
+def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, timeBoundDict, prefix="pairwise", \
         minL_calc=2.0, maxL_calc=24, minL_infer=6.0, maxL=20.0, step=0.25, minL_plot=6.0, FP=None, R=None, POWER=None):
 
     bins = np.arange(minL_plot, maxL+step, step)
@@ -24,10 +25,31 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, p
     fig = plt.figure(tight_layout=True)
     gs = gridspec.GridSpec(nrow, ncol, wspace=0.15, hspace=0.3)
 
-    offset = np.inf
-    for k, time in gaps.items():
-        if time < offset:
-            offset = time
+    # in function inferVecNe_singlePop_MultiTP, we have checked that the min sample time is 0, so this offset is not needed
+    # offset = np.inf
+    # for k, time in gaps.items():
+    #     if time < offset:
+    #         offset = time
+
+    ## adjust time if the timebound is specified
+    t_min = np.min(list(gaps.values()))
+    t_max = np.max(list(gaps.values()))
+    i_min = -1
+    i_max = -1
+    for k, v in gaps.items():
+        if v == t_min:
+            i_min = k
+        if v == t_max:
+            i_max = k
+    assert(i_min != -1)
+    assert(i_max != -1)
+    t_min += timeBoundDict[i_min][0] # here t_min is either 0 or negative
+    t_max += timeBoundDict[i_max][1]
+    ### shift each sample cluster's time by |t_min|
+    gaps_adjusted = {}
+    for k, v in gaps.items():
+        gaps_adjusted[k] = v + abs(t_min)
+    gaps = gaps_adjusted
 
     # set up the canvas
     index = 0
@@ -42,6 +64,7 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, p
         n1, n2 = nSamples[id1], nSamples[id2]
         npairs = n1*n2 if id1 != id2 else n1*(n1-1)/2
         x, _ = np.histogram(ibd_simulated, bins=bins)
+        print(f'histogram: {x}')
         x = np.array(x)/npairs
         
         i, j = index//ncol, index%ncol
@@ -51,8 +74,16 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, p
         ax.scatter(midpoint, x, label='Observed IBD sharing', s=3.0, color='grey')
 
         # plot fit from estimated Ne
-        meanNumIBD_expectation, _ = singlePop_2tp_given_vecNe(estNe[max(gaps[id1], gaps[id2]) - offset:], L, midpoint, abs(gaps[id1]-gaps[id2]))
-        meanNumIBD_expectation = 4*(step/100)*meanNumIBD_expectation
+        low1, high1 = timeBoundDict[id1]
+        low2, high2 = timeBoundDict[id2]
+        weight_per_combo = 1/((high1+1-low1)*(high2+1-low2))
+        lambda_accu = np.zeros(len(midpoint))
+        for i in np.arange(low1, high1+1):
+            for j in np.arange(low2, high2+1):
+                age_ = max(gaps[id1]+i, gaps[id2]+j)
+                lambda_, _ = singlePop_2tp_given_vecNe(estNe[age_:], L, midpoint, abs(gaps[id1]+i - gaps[id2]-j))
+                lambda_accu += weight_per_combo*lambda_
+        meanNumIBD_expectation = 4*(step/100)*lambda_accu
         ax.plot(midpoint, meanNumIBD_expectation, label='Expected IBD sharing from inferred Ne', color='red', linewidth=0.75)
 
         if (not FP is None) and (not R is None) and (not POWER is None):
@@ -60,8 +91,16 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, p
             binMidpoint = (bins_calc[1:] + bins_calc[:-1])/2
             s = np.where(np.isclose(binMidpoint, midpoint[0]))[0][0]
             e = np.where(np.isclose(binMidpoint, midpoint[-1]))[0][0]
-            meanNumIBD_theory, _ = singlePop_2tp_given_vecNe_withError(estNe[max(gaps[id1], gaps[id2]) - offset:], L, binMidpoint, abs(gaps[id1]-gaps[id2]), FP, R, POWER)
-            meanNumIBD_theory = meanNumIBD_theory[s:e+1]
+            low1, high1 = timeBoundDict[id1]
+            low2, high2 = timeBoundDict[id2]
+            weight_per_combo = 1/((high1+1-low1)*(high2+1-low2))
+            lambda_accu = np.zeros(len(binMidpoint))
+            for i in np.arange(low1, high1+1):
+                for j in np.arange(low2, high2+1):
+                    age_ = max(gaps[id1]+i, gaps[id2]+j)
+                    lambda_, _ = singlePop_2tp_given_vecNe_withError(estNe[age_:], L, binMidpoint, abs(gaps[id1]+i - gaps[id2]-j), FP, R, POWER)
+                    lambda_accu += weight_per_combo*lambda_
+            meanNumIBD_theory = lambda_accu[s:e+1]
             meanNumIBD_theory = 4*(step/100)*meanNumIBD_theory
             ax.plot(midpoint, meanNumIBD_theory, color='orange', label='Expected IBD sharing from inferred Ne (with error correction)', linewidth=0.75)
 
@@ -74,8 +113,8 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, p
         ax.set_title(title, fontsize=4)
         ax.tick_params(labelsize=4)
     
-    plt.savefig(f'{outFolder}/{prefix}.fit.png', dpi=300, bbox_inches = "tight")
-    plt.savefig(f'{outFolder}/{prefix}.fit.pdf', bbox_inches = "tight")
+    plt.savefig(os.path.join(outFolder, f'{prefix}.fit.png'), dpi=300, bbox_inches = "tight")
+    plt.savefig(os.path.join(outFolder, f'{prefix}.fit.pdf'), bbox_inches = "tight")
     plt.clf()
 
 
@@ -147,7 +186,7 @@ def plotPosteriorTMRCA(coalRates, gap=0, minL=6.0, maxL=20.0, step=0.25, outFold
     return postprob
 
 
-def plot2PopIMfit(coalRates, ibds_by_chr, ch_len_dict, gap, nPairs, minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0, step=0.25, FP=None, R=None, POWER=None, outFolder="", prefix=""):
+def plot2PopIMfit(coalRates, ibds_by_chr, ch_len_dict, nPairs, time1, time2, timeBound=None, minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0, step=0.25, FP=None, R=None, POWER=None, outFolder="", prefix=""):
     bins_infer = np.arange(minL_infer, maxL_infer+step, step)
     binMidpoint_infer = (bins_infer[1:] + bins_infer[:-1])/2
 
@@ -156,7 +195,22 @@ def plot2PopIMfit(coalRates, ibds_by_chr, ch_len_dict, gap, nPairs, minL_calc=2.
         outFigPrefix = outFigPrefix + "." + prefix
 
     G = np.array([v for k, v in ch_len_dict.items()])
-    meanNumIBD_theory, _ = twoPopIM_given_coalRate(coalRates, G, binMidpoint_infer, gap)
+    if timeBound == None:
+        meanNumIBD_theory, _ = twoPopIM_given_coalRate(coalRates, G, binMidpoint_infer, abs(time1 - time2))
+    else:
+        low1 = time1 + timeBound[0][0]
+        low2 = time2 + timeBound[1][0]
+        startingTime = max(low1, low2) # this is the most recent time point for which pop1 and pop2 are temporally overlapping, so this is the time point from which cross-coalescence rate will be estimated backward in time
+        time1 -= startingTime
+        time2 -= startingTime # normalize with respect to starting time. this should make it easier to index into coalRates vector.
+        meanNumIBD_theory = np.zeros(len(binMidpoint_infer))
+        weight_per_combo = 1/((1 + timeBound[0][1] - timeBound[0][0])*(1 + timeBound[1][1] - timeBound[1][0]))
+        for i in np.arange(time1 + timeBound[0][0], time1 + timeBound[0][1] + 1):
+            for j in np.arange(time2 + timeBound[1][0], time2 + timeBound[1][1] + 1):
+                assert(max(i,j) >= 0)
+                lambdas_, _ = twoPopIM_given_coalRate(coalRates[max(i,j):], G, binMidpoint_infer, abs(i - j))
+                meanNumIBD_theory += weight_per_combo*lambdas_
+
     meanNumIBD_theory = 4*(step/100)*meanNumIBD_theory
     plt.plot(binMidpoint_infer, meanNumIBD_theory, color='red', label='IBD from inferred coal rates')
 
@@ -165,7 +219,21 @@ def plot2PopIMfit(coalRates, ibds_by_chr, ch_len_dict, gap, nPairs, minL_calc=2.
         binMidpoint = (bins_calc[1:]+bins_calc[:-1])/2
         s = np.where(np.isclose(binMidpoint, binMidpoint_infer[0]))[0][0]
         e = np.where(np.isclose(binMidpoint, binMidpoint_infer[-1]))[0][0]
-        meanNumIBD_theory, _ = twoPopIM_given_coalRate_withError(coalRates, G, binMidpoint, gap, FP=FP, R=R, POWER=POWER)
+        if timeBound == None:
+            meanNumIBD_theory, _ = twoPopIM_given_coalRate_withError(coalRates, G, binMidpoint, abs(time1 - time2), FP=FP, R=R, POWER=POWER)
+        else:
+            low1 = time1 + timeBound[0][0]
+            low2 = time2 + timeBound[1][0]
+            startingTime = max(low1, low2) # this is the most recent time point for which pop1 and pop2 are temporally overlapping, so this is the time point from which cross-coalescence rate will be estimated backward in time
+            time1 -= startingTime
+            time2 -= startingTime # normalize with respect to starting time. this should make it easier to index into coalRates vector.
+            meanNumIBD_theory = np.zeros(len(binMidpoint_infer))
+            weight_per_combo = 1/((1 + timeBound[0][1] - timeBound[0][0])*(1 + timeBound[1][1] - timeBound[1][0]))
+            for i in np.arange(time1 + timeBound[0][0], time1 + timeBound[0][1] + 1):
+                for j in np.arange(time2 + timeBound[1][0], time2 + timeBound[1][1] + 1):
+                    assert(max(i,j) >= 0)
+                    lambdas_, _ = twoPopIM_given_coalRate_withError(coalRates[max(i,j):], G, binMidpoint, abs(i - j), FP=FP, R=R, POWER=POWER)
+                    meanNumIBD_theory += weight_per_combo*lambdas_
         meanNumIBD_theory = meanNumIBD_theory[s:e+1]
         meanNumIBD_theory = 4*(step/100)*meanNumIBD_theory
         plt.plot(binMidpoint_infer, meanNumIBD_theory, color='orange', linestyle='--', label='IBD from inferred coal rates (error model correction)')

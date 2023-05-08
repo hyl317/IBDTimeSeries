@@ -4,7 +4,7 @@ from scipy.optimize import minimize
 from numba import jit
 from scipy.special import logsumexp
 
-
+@jit(nopython=True)
 def singlePop_2tp(G, L, T, N):
     # calculate expected number of IBD segments of length L
     # for a chromosome of length G,
@@ -13,12 +13,27 @@ def singlePop_2tp(G, L, T, N):
     part2 = 8*N*(1+4*N*G) + 2*T*(1+4*G*N)*(1+4*N*L) + (G-L)*(T+4*N*L*T)**2
     return part1*part2
 
+@jit(nopython=True)
 def singlePop_2tp_given_Ne(Ne, G, L, gap):
     # G: a list of chromosome lengths, given in cM
     accu = np.zeros(len(L))
     L = L/100
     for chrLen in G/100:
         accu += singlePop_2tp(chrLen, L, gap, Ne)
+    return accu
+
+@jit(nopython=True)
+def singlePop_2tp_given_Ne_withError(Ne, G, L, gap, FP, R, POWER):
+    # update lambda according to the given error model
+    # evaluate the integral by summing over bins
+
+    accu = np.zeros(len(L))
+    L = L/100
+    for chrLen in G/100:
+        accu += singlePop_2tp(chrLen, L, gap, Ne)
+    detected = POWER*accu
+    inferred = np.sum(R*(detected.reshape(len(L), 1)), axis=0) # elementwise mul and then sum over column
+    accu = FP*np.sum(G)*100 + inferred # update accu to incorporate error models, need to multiply by 100 cuz we wanna convert FP rate from per centiMorgan to per Morgan
     return accu
 
 # @jit(nopython=True)
@@ -134,8 +149,6 @@ def singlePop_2tp_given_vecNe_withError(Ne, G, L, gap, FP, R, POWER):
 
     # update lambda and gradient according to the given error model
     # evaluate the integral by summing over bins
-    # print(f'length of power: {POWER.shape}')
-    # print(f'shape of accu: {accu.shape}')
     detected = POWER*accu
     inferred = np.sum(R*(detected.reshape(nBins, 1)), axis=0) # elementwise mul and then sum over column
     accu = FP*np.sum(G)*100 + inferred # update accu to incorporate error models, need to multiply by 100 cuz we wanna convert FP rate from per centiMorgan to per Morgan
@@ -150,7 +163,7 @@ def singlePop_2tp_given_vecNe_withError(Ne, G, L, gap, FP, R, POWER):
 
 
 
-def singlePop_2tp_given_Ne_negLoglik(Ne, histogram, binMidpoint, G, age1, age2, numPairs, timeBound):
+def singlePop_2tp_given_Ne_negLoglik(Ne, histogram, binMidpoint, G, age1, age2, numPairs, timeBound, s=0, e=-1, FP=None, R=None, POWER=None):
     assert(len(histogram) == len(binMidpoint))
     step = binMidpoint[1] - binMidpoint[0]
     low1, high1 = timeBound[0]
@@ -159,10 +172,14 @@ def singlePop_2tp_given_Ne_negLoglik(Ne, histogram, binMidpoint, G, age1, age2, 
     lambdas = np.zeros(len(binMidpoint))
     for i in np.arange(low1, high1+1):
         for j in np.arange(low2, high2+1):
-            lambdas += weight_per_combo*singlePop_2tp_given_Ne(Ne, G, binMidpoint, abs((age1+i) - (age2+j)))
+            if (FP is None) or (R is None) or (POWER is None):
+                lambdas += weight_per_combo*singlePop_2tp_given_Ne(Ne, G, binMidpoint, abs((age1+i) - (age2+j)))
+            else:
+                lambdas += weight_per_combo*singlePop_2tp_given_Ne_withError(Ne, G, binMidpoint, abs((age1+i) - (age2+j)), FP, R, POWER)
+
     lambdas = lambdas*numPairs*(step/100)
     loglik_each_bin = histogram*np.log(lambdas) - lambdas
-    return -np.sum(loglik_each_bin)
+    return -np.sum(loglik_each_bin[s:e])
 
 def singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histogram, binMidpoint, G, age1, age2, Tmax, numPairs, timeBound,\
         s=0, e=-1, FP=None, R=None, POWER=None, tail=False):
@@ -319,15 +336,30 @@ def twoPopIM_given_coalRate_withError(coalRates, G, L, timeGap, FP, R, POWER):
     
     return accu, grad
 
-def twoPopIM_given_vecCoalRates_negLoglik_noPenalty(coalRates, histogram, binMidpoint, G, numPairs, timeGap, s=0, e=-1, FP=None, R=None, POWER=None):
+def twoPopIM_given_vecCoalRates_negLoglik_noPenalty(coalRates, histogram, binMidpoint, G, numPairs, time1, time2, timeBound=None, s=0, e=-1, FP=None, R=None, POWER=None):
     # G: chromosome length, given in cM
     # binMidPoint: given in cM
     assert(len(histogram) == len(binMidpoint))
     step = binMidpoint[1] - binMidpoint[0]
-    if (FP is None) or (R is None) or (POWER is None):
-        lambdas, grad_mat = twoPopIM_given_coalRate(coalRates, G, binMidpoint, timeGap)
+    if timeBound is None:
+        if (FP is None) or (R is None) or (POWER is None):
+            lambdas, grad_mat = twoPopIM_given_coalRate(coalRates, G, binMidpoint, abs(time1 - time2))
+        else:
+            lambdas, grad_mat = twoPopIM_given_coalRate_withError(coalRates, G, binMidpoint, abs(time1 - time2), FP, R, POWER)
     else:
-        lambdas, grad_mat = twoPopIM_given_coalRate_withError(coalRates, G, binMidpoint, timeGap, FP, R, POWER)
+        grad_mat = np.zeros((len(coalRates), len(binMidpoint)))
+        lambdas = np.zeros(len(binMidpoint))
+        weight_per_combo = 1/((1 + timeBound[0][1] - timeBound[0][0])*(1 + timeBound[1][1] - timeBound[1][0]))
+        for i in np.arange(time1 + timeBound[0][0], time1 + timeBound[0][1] + 1):
+            for j in np.arange(time2 + timeBound[1][0], time2 + timeBound[1][1] + 1):
+                assert(max(i,j) >= 0)
+                if (FP is None) or (R is None) or (POWER is None):
+                    lambdas_, grad_mat_ = twoPopIM_given_coalRate(coalRates[max(i,j):], G, binMidpoint, abs(i - j))
+                else:
+                    lambdas_, grad_mat_ = twoPopIM_given_coalRate_withError(coalRates[max(i,j):], G, binMidpoint, abs(i - j), FP, R, POWER)
+                lambdas += weight_per_combo*lambdas_
+                grad_mat[max(i,j):, :] += weight_per_combo*grad_mat_
+
     # subset to segment length range of interest for inference
     histogram = histogram[s:e]
     lambdas = lambdas[s:e]

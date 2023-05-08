@@ -84,7 +84,7 @@ def singlePop_2tp_given_vecNe_negLoglik_noPenalty_grad(Ne, histogram, binMidpoin
     grad = -numPairs*(step/100)*np.sum((histogram/lambdas - 1).reshape((1, len(histogram)))*grad_mat, axis=1).flatten()
     return grad
 
-def g(Ne, histograms, binMidpoint, G, gaps, nSamples, time_offset, Nconst, beta):
+def g(Ne, histograms, binMidpoint, G, gaps, nSamples, time_offset):
     # return the negative loglikelihood of Ne, plus the differentiable penalty term
     # G: a vector of chromosome length
     # gaps: dictionary, where the key is the sampling cluster index and the value is the sampling time
@@ -100,10 +100,10 @@ def g(Ne, histograms, binMidpoint, G, gaps, nSamples, time_offset, Nconst, beta)
         accu += singlePop_2tp_given_vecNe_negLoglik_noPenalty_g(Ne[max(gaps[id1], gaps[id2])-time_offset:], histograms[(min(id1, id2), max(id1, id2))], \
             binMidpoint, G, abs(gaps[id1] - gaps[id2]), (2*nSamples[id1])*(2*nSamples[id2]))
     
-    accu += beta*np.sum((np.log(Ne)-np.log(Nconst))**2)
+    #accu += beta*np.sum((np.log(Ne)-np.log(Nconst))**2)
     return accu
 
-def grad(Ne, histograms, binMidpoint, G, gaps, nSamples, time_offset, Nconst, beta):
+def grad(Ne, histograms, binMidpoint, G, gaps, nSamples, time_offset):
     # gradient function of the above function g()
     Ne = np.exp(Ne)
     grad = np.zeros_like(Ne)
@@ -116,23 +116,23 @@ def grad(Ne, histograms, binMidpoint, G, gaps, nSamples, time_offset, Nconst, be
         grad[max(gaps[id1], gaps[id2])-time_offset:] += singlePop_2tp_given_vecNe_negLoglik_noPenalty_grad(Ne[max(gaps[id1], gaps[id2])-time_offset:], histograms[(min(id1, id2), max(id1, id2))], \
             binMidpoint, G, abs(gaps[id1] - gaps[id2]), (2*nSamples[id1])*(2*nSamples[id2]))
     
-    grad += beta*np.sum(2*(np.log(Ne) - np.log(Nconst))/Ne)
+    #grad += beta*np.sum(2*(np.log(Ne) - np.log(Nconst))/Ne)
     return grad
 
 
 
 
-def AccProx_trendFiltering_l1(initNe, histograms, binMidpoint, chrlens, gaps, nSamples, t_min, Nconst, alpha, beta):
+def AccProx_trendFiltering_l1(Ne, histograms, binMidpoint, G, gaps, nSamples, Tmax, alpha, beta, timeBoundDict, Nconst, s=0, e=-1, FP=None, R=None, POWER=None):
     # optimize the objective function using the Nesterov accelerated proximal gradient method implemented in MuShi
-    initNe = np.log(initNe)
-    params = [histograms, binMidpoint, chrlens, gaps, nSamples, t_min, Nconst, beta]
+    initNe = np.log(Ne)
+    params = [histograms, binMidpoint, G, gaps, nSamples, 0]
     ########################### auxiliary function defined inside this big function ##############################
     # defined as inner function so that I don't need to include alpha in params
     @jit(nopython=True)
     def l1_penalty(Ne):
-        return alpha*np.sum(np.abs(np.diff(Ne, n=2)))
+        return alpha*np.sum(np.abs(np.diff(Ne, n=2))) + beta*np.sum(np.abs(np.diff(Ne, n=1)))
     def prox(Ne, s):
-        trend_filter = mushi.optimization.TrendFilter((1,), (s*alpha,))
+        trend_filter = mushi.optimization.TrendFilter((1,0), (s*alpha,s*beta))
         return trend_filter.run(Ne)
     ###############################################################################################################
 

@@ -7,7 +7,7 @@ from scipy.stats import norm
 from analytic import singlePop_2tp_given_Ne_negLoglik, singlePop_2tp_given_vecNe_negLoglik_noPenalty, twoPopIM_2tp_given_coalrate_negLoglik, twoPopIM_given_vecCoalRates_negLoglik_noPenalty
 from ts_utility import multi_run
 from plot import plot_pairwise_fitting, plot_pairwise_TMRCA, plotPosteriorTMRCA, plot2PopIMfit
-from AccProx import AccProx_trendFiltering_l1
+#from AccProx import AccProx_trendFiltering_l1
 import matplotlib.pyplot as plt
 import pickle
 import warnings
@@ -198,10 +198,11 @@ def bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, timeB
         print(f'elapsed time for optimization: {time.time() - t1}')
         return res.x
     elif method == 'l1':
-        res = AccProx_trendFiltering_l1(NinitVec, *kargs)
-        if verbose:
-            print(res)
-        return res
+        raise RuntimeError('Unsupported Method')
+        # res = AccProx_trendFiltering_l1(NinitVec, *kargs)
+        # if verbose:
+        #     print(res)
+        # return res
     else:
         raise RuntimeError('Unsupported Method')
 

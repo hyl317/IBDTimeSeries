@@ -64,7 +64,6 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, t
         n1, n2 = nSamples[id1], nSamples[id2]
         npairs = n1*n2 if id1 != id2 else n1*(n1-1)/2
         x, _ = np.histogram(ibd_simulated, bins=bins)
-        print(f'histogram: {x}')
         x = np.array(x)/npairs
         
         i, j = index//ncol, index%ncol

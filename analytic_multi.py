@@ -17,6 +17,7 @@ import itertools
 import os
 import time
 import math
+from numba import prange
 
 ch_len_dict = {1:286.279, 2:268.840, 3:223.361, 4:214.688, 5:204.089, 6:192.040, 7:187.221, 8:168.003, 9:166.359, \
         10:181.144, 11:158.219, 12:174.679, 13:125.706, 14:120.203, 15:141.860, 16:134.038, 17:128.491, 18:117.709, \
@@ -53,23 +54,43 @@ def singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, G, gaps
     # nSamples: dictionary, where the key is the sampling cluster index and the value is the number of diploid samples within each cluster
     accu = 0
     grad = np.zeros_like(Ne)
-    for id, nSample in nSamples.items():
-        if nSample == 1:
-            continue
-        age = gaps[id]
-        accu_, grad_ = singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histograms[(id, id)], binMidpoint, G, \
-            age, age, Tmax, (2*nSample)*(2*nSample-2)/2, [timeBoundDict[id], timeBoundDict[id]], 
+
+    # NSampleCluster = len(nSamples)
+    # SampleClusterID = list(nSamples.keys())
+    # for i in prange(NSampleCluster):
+    #     id = SampleClusterID[i]
+    #     nSample = nSamples[id]
+    #     if nSample == 1:
+    #         continue
+    #     age = gaps[id]
+    #     accu_, grad_ = singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histograms[(id, id)], binMidpoint, G, \
+    #         age, age, Tmax, (2*nSample)*(2*nSample-2)/2, [timeBoundDict[id], timeBoundDict[id]], 
+    #         s=s, e=e, FP=FP, R=R, POWER=POWER, tail=tail)
+    #     accu += accu_
+    #     grad += grad_
+
+    # sampleClusterCombos = list(itertools.combinations(SampleClusterID, 2))
+    # for i in prange(len(sampleClusterCombos)):
+    #     id1, id2 = sampleClusterCombos[i]
+    #     accu_, grad_ = singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histograms[(min(id1, id2), max(id1, id2))], \
+    #         binMidpoint, G, gaps[id1], gaps[id2], Tmax, \
+    #             (2*nSamples[id1])*(2*nSamples[id2]), [timeBoundDict[id1], timeBoundDict[id2]], 
+    #             s=s, e=e, FP=FP, R=R, POWER=POWER, tail=tail)
+    #     accu += accu_
+    #     grad += grad_
+
+    ################################ unify computation for both within and between sample cluster ############################
+    SampleClusterID = list(nSamples.keys())
+    sampleClusterCombos = list(itertools.combinations_with_replacement(SampleClusterID, 2))
+    for i in prange(len(sampleClusterCombos)):
+        id1, id2 = sampleClusterCombos[i]
+        npairs = (2*nSamples[id1])*(2*nSamples[id2]) if id1 != id2 else (2*nSamples[id1])*(2*nSamples[id2]-2)/2
+        accu_, grad_ = singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histograms[(min(id1, id2), max(id1, id2))], \
+            binMidpoint, G, gaps[id1], gaps[id2], Tmax, npairs, [timeBoundDict[id1], timeBoundDict[id2]], 
             s=s, e=e, FP=FP, R=R, POWER=POWER, tail=tail)
         accu += accu_
         grad += grad_
-    for id1, id2 in itertools.combinations(nSamples.keys(), 2):
-        #i = max(gaps[id1], gaps[id2])-time_offset
-        accu_, grad_ = singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histograms[(min(id1, id2), max(id1, id2))], \
-            binMidpoint, G, gaps[id1], gaps[id2], Tmax, \
-                (2*nSamples[id1])*(2*nSamples[id2]), [timeBoundDict[id1], timeBoundDict[id2]], 
-                s=s, e=e, FP=FP, R=R, POWER=POWER, tail=tail)
-        accu += accu_
-        grad += grad_
+        
     
     if alpha != 0:
         penalty1 = alpha*np.sum(np.diff(np.log(Ne), n=2)**2)
@@ -156,8 +177,8 @@ def bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, timeB
 
     #NinitVec = np.full(Tmax + (t_max - t_min), Nconst)
     #NinitVec = np.exp(np.random.normal(np.log(Nconst), np.log(Nconst)/25, Tmax + (t_max - t_min)))
-    # NinitVec = np.random.normal(Nconst, Nconst/25, Tmax + (t_max - t_min))
-    NinitVec = np.full(Tmax + (t_max - t_min), np.nan)
+    NinitVec = np.random.normal(Nconst, Nconst/25, Tmax + (t_max - t_min))
+    # NinitVec = np.full(Tmax + (t_max - t_min), np.nan)
     for id in nSamples.keys():
         ibds_, nSamples_ = {}, {}
         ibds_[(id,id)] = ibds_by_chr[(id,id)]
@@ -166,26 +187,26 @@ def bootstrap_single_run(ch_ids, ibds_by_chr, gaps, nSamples, ch_len_dict, timeB
         constNe = inferConstNe_singlePop_MultiTP(histograms_, binMidpoint_, {id:0}, nSamples_, Ninit, G_, timeBoundDict, s, e, FP, R, POWER)
         if verbose:
             print(f'constNe for {id} is {constNe}')
-        NinitVec[gaps[id]] = constNe
-    timeAnchor = np.sort(list(gaps.values()))
-    if len(timeAnchor) == 1:
-        Nconst = NinitVec[timeAnchor[0]]
-        NinitVec = np.random.normal(Nconst, Nconst/20, Tmax + (t_max - t_min))
-    else:
-        for i in range(len(timeAnchor)-1):
-            # note the direction of time
-            end, start = timeAnchor[i], timeAnchor[i+1]
-            Nend, Nstart = NinitVec[end], NinitVec[start]
-            # fit an exponential growth in between Nend and Nstart
-            if i == 0:
-                end = 0 # where there is timeBound, timeAnchor[0] may not be 0; so we set it to be 0 to extend the exponential growth to the very beginning
-            t = np.arange(start-end)[::-1]
-            NinitVec[end:start] = Nstart*np.exp((t/(start-end))*np.log(Nend/Nstart))
-            if i == len(timeAnchor)-2:
-                NinitVec[start:] = np.random.normal(NinitVec[start], NinitVec[start]/20, Tmax + (t_max - t_min) - start)
-    if verbose:
-        print(f'NinitVec: {NinitVec}')
-    assert(~np.isnan(NinitVec).any())  
+    #     NinitVec[gaps[id]] = constNe
+    # timeAnchor = np.sort(list(gaps.values()))
+    # if len(timeAnchor) == 1:
+    #     Nconst = NinitVec[timeAnchor[0]]
+    #     NinitVec = np.random.normal(Nconst, Nconst/20, Tmax + (t_max - t_min))
+    # else:
+    #     for i in range(len(timeAnchor)-1):
+    #         # note the direction of time
+    #         end, start = timeAnchor[i], timeAnchor[i+1]
+    #         Nend, Nstart = NinitVec[end], NinitVec[start]
+    #         # fit an exponential growth in between Nend and Nstart
+    #         if i == 0:
+    #             end = 0 # where there is timeBound, timeAnchor[0] may not be 0; so we set it to be 0 to extend the exponential growth to the very beginning
+    #         t = np.arange(start-end)[::-1]
+    #         NinitVec[end:start] = Nstart*np.exp((t/(start-end))*np.log(Nend/Nstart))
+    #         if i == len(timeAnchor)-2:
+    #             NinitVec[start:] = np.random.normal(NinitVec[start], NinitVec[start]/20, Tmax + (t_max - t_min) - start)
+    # # if verbose:
+    # #     print(f'NinitVec: {NinitVec}')
+    # assert(~np.isnan(NinitVec).any())  
 
     kargs = (histograms, binMidpoint, chrlens, gaps_adjusted, nSamples, Tmax, alpha, beta, timeBoundDict, Nconst, s, e+1, FP, R, POWER)  
     
@@ -461,35 +482,61 @@ def inferVecNe_singlePop_MultiTP_withMask(path2IBD, path2ChrDelimiter, path2mask
 
 
 
-# def kfold_validation(ibds_by_chr, gaps, nSamples, alpha, k_fold, Ninit=500, Tmax=100, minL=4.0, maxL=20.0, step=0.1, beta=1e-4):
-#     time_offset = np.min(list(gaps.values()))
-#     # return the likelihood averaged over the 5 validation sets with the given alpha
-#     results = np.zeros(len(k_fold))
-#     for i, validation_set in enumerate(k_fold):
-#         train_set = [i for i in np.arange(1, 23) if i not in validation_set]
-#         Ne = bootstrap_single_run(ibds_by_chr, train_set, gaps, nSamples, Ninit, Tmax, minL, maxL, step, alpha, beta)
-#         histograms, binMidpoint, G = prepare_input(ibds_by_chr, validation_set, ch_len_dict, nSamples.keys(), minL, maxL, step)
-#         # since here we only want the likelihood, not the penalty term, we can safely set Nconst, alpha, beta all to 0
-#         loglike, _ = singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, G, gaps, nSamples, time_offset, 0, 0, 0)
-#         results[i] = -loglike # the function returns the negative of loglikelihood, so we need to reverse the sign
-#     print(f'{alpha}: {np.mean(results)}')
-#     return np.mean(results) 
+def kfold_validation(ibds_by_chr, gaps, nSamples, timeBoundDict, alpha, k_fold, Ninit=500, Tmax=100, \
+                     minL_calc=2.0, maxL_calc=22, minL_infer=4.0, maxL_infer=20.0, step=0.1, beta=250):
+    # return the likelihood averaged over the 5 validation sets with the given alpha
+    results = np.zeros(len(k_fold))
+    for i, validation_set in enumerate(k_fold):
+        train_set = [i for i in np.arange(1, 23) if i not in validation_set]
+        Ne = bootstrap_single_run(train_set, ibds_by_chr, gaps, nSamples, ch_len_dict, timeBoundDict, Ninit, Tmax, \
+                                  minL_infer=minL_infer, maxL_infer=maxL_infer, step=step, alpha=alpha, beta=beta)
+        histograms, binMidpoint, G = prepare_input(ibds_by_chr, validation_set, ch_len_dict, nSamples.keys(), \
+                                        minL=minL_calc, maxL=maxL_calc, step=step)
+        # since here we only want the likelihood, not the penalty term, we can safely set Nconst, alpha, beta all to 0
+        loglike, _ = singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, G, gaps, nSamples, Tmax, 0, 0, timeBoundDict, 0)
+        results[i] = -loglike # the function returns the negative of loglikelihood, so we need to reverse the sign
+    print(f'{alpha}: {np.mean(results)}')
+    return np.mean(results) 
 
 
-# def hyperparam_opt(ibds_by_chr, gaps, nSamples, Ninit=500, Tmax=100, minL=4.0, maxL=20.0, step=0.1, beta=1e-4, nprocess=6, outfolder="", prefix=""):
-#     k_fold = [[2, 3, 16, 17], [4, 5, 19, 22], [6, 7, 8, 11], [9, 10, 12, 21], [1, 13, 14, 15, 18]]
-#     alphas = np.logspace(0, 3, 100)
-#     params = [[ibds_by_chr, gaps, nSamples, alpha, k_fold, Ninit, Tmax, minL, maxL, step, beta] for alpha in alphas]
-#     results = multi_run(kfold_validation, params, processes=nprocess)
+def hyperparam_opt(ibds_by_chr, gaps, nSamples, timeBoundDict, Ninit=500, Tmax=100, minL_calc=2.0, maxL_calc=22, minL_infer=6.0, maxL_infer=20.0,
+                   step=0.1, beta=250, nprocess=6, outfolder=""):
+    k_fold = [[2, 3, 16, 17], [4, 5, 19, 22], [6, 7, 8, 11], [9, 10, 12, 21], [1, 13, 14, 15, 18]]
+    alphas = np.logspace(1, 5, 25)
+    loglik = np.zeros(len(alphas))
+    for i, alpha in enumerate(alphas):
+        loglik[i] = kfold_validation(ibds_by_chr, gaps, nSamples, timeBoundDict, alpha, k_fold, Ninit, Tmax, \
+               minL_calc, maxL_calc, minL_infer, maxL_infer, step, beta)
+        print(f'alpha={alpha}, loglik={loglik[i]}')
 
-#     # make a plot for easy visulization of how the k-fold likelihood changes as a function of alpha
-#     plt.plot(alphas, results, marker='o')
-#     plt.xlabel('alpha')
-#     plt.ylabel('loglikelihood')
-#     plt.xscale('log')
-#     plt.savefig(f'{outfolder}/hyperparam.{prefix}.pdf', dpi=300)
+    # make a plot for easy visulization of how the k-fold likelihood changes as a function of alpha
+    plt.plot(alphas, loglik, marker='o')
+    plt.xlabel('alpha')
+    plt.ylabel('loglikelihood')
+    plt.xscale('log')
+    plt.savefig(os.path.join(outfolder, 'hyperparam.pdf'), dpi=300)
 
-#     return alphas[np.argmax(results)]
+    return alphas[np.argmax(loglik)]
+
+def hyperparam_opt2(ibds_by_chr, gaps, nSamples, timeBoundDict, Ninit=500, Tmax=100, minL_calc=2.0, maxL_calc=22, minL_infer=6.0, maxL_infer=20.0,
+                    step=0.1, beta=250, outfolder=""):
+    alphas = np.logspace(1, 5, 25)
+    loglik = np.zeros(len(alphas))
+    chs = np.arange(1, 23)
+    for i, alpha in enumerate(alphas):
+        Ne = bootstrap_single_run(chs, ibds_by_chr, gaps, nSamples, ch_len_dict, timeBoundDict, Ninit, Tmax, \
+                                  minL_infer=minL_infer, maxL_infer=maxL_infer, step=step, alpha=alpha, beta=beta)
+        histograms, binMidpoint, G = prepare_input(ibds_by_chr, chs, ch_len_dict, nSamples.keys(), \
+                                        minL=minL_calc, maxL=maxL_calc, step=step)
+        # since here we only want the likelihood, not the penalty term, we can safely set Nconst, alpha, beta all to 0
+        loglike, _ = singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, G, gaps, nSamples, Tmax, 0, 0, timeBoundDict, 0)
+        loglik[i] = -loglike
+        print(f'{alpha}: {-loglike}')
+    plt.plot(alphas, loglik, marker='o')
+    plt.xlabel('alpha')
+    plt.ylabel('loglikelihood')
+    plt.xscale('log')
+    plt.savefig(os.path.join(outfolder, 'hyperparam2.pdf'), dpi=300)
 
 
 # def test_gradient(ibds_by_chr, gaps, nSamples):

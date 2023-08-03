@@ -429,6 +429,80 @@ def maskIBD(path2unmaskedIBD, path2ChrDelimiter, path2mask):
                         ibd_start_masked, ibd_end_masked = max(span_start, ibd_start), min(span_end, ibd_end)
                         out.write(f'{iid1}\t{iid2}\t{i+map[ch]}\t{ibd_start_masked}\t{ibd_end_masked}\t{ibd_end_masked-ibd_start_masked}\n')
 
+######################################################################################################################################
+######################################################################################################################################
+################################### simulations that saves a vcf file at the end #####################################################
+
+import os
+import tskit
+import pickle
+
+def simulateOneChrom(demo, ch, nSamples, outFolder, r=1):
+    t1 = time.time()
+    path2Map = f"/mnt/archgen/users/yilei/Data/Hapmap/genetic_map_GRCh37_chr{ch}.txt"
+    recombMap = msprime.RateMap.read_hapmap(path2Map)
+    if not os.path.exists(os.path.join(outFolder, f"ts/chr{ch}.ts")):
+        # sample from the bronze age samples
+        # the default sampling time is already set in the demo model, which is 15 generations after the pulse admixture
+        ts = msprime.sim_ancestry(samples={'Bronze':nSamples}, demography=demo, ploidy=2,\
+            recombination_rate=recombMap, record_full_arg=False, random_seed=r)
+        ####### extract IBD from simulated tree sequence #######
+        path2Map = f"/mnt/archgen/users/yilei/Data/Hapmap/genetic_map_GRCh37_chr{ch}.txt"
+        recombMap = msprime.RateMap.read_hapmap(path2Map)
+        bps, cMs = readHapMap(path2Map)
+        bkp_bp = ts.breakpoints(as_array=True)
+        bkp_cm = np.array([bp2Morgan(bp, bps, cMs) for bp in bkp_bp])
+        ret, results4IBDNe = ibd_segments_fast(ts, bkp_bp, bkp_cm, within=list(range(0, 2*nSamples)), max_time=1000, minLen=4.0)
+        with open(os.path.join(outFolder, f'ibd/chr{ch}.ibdne_input.ibds'), 'w') as f:
+            for tuple in results4IBDNe:
+                id1, hap1, id2, hap2, bp_start, bp_end, length = tuple
+                f.write(f'{id1}\t{hap1}\t{id2}\t{hap2}\t{ch}\t{bp_start}\t{bp_end}\t{length}\n')
+
+        mts = msprime.sim_mutations(ts, rate=1.25e-8, random_seed=r)
+        mts.dump(os.path.join(outFolder, f"ts/chr{ch}.ts"))
+    else:
+        mts = tskit.load(os.path.join(outFolder, f"ts/chr{ch}.ts"))
+
+    site2keep = np.zeros(mts.num_sites)
+    afs = np.zeros(mts.num_sites)
+    for variant in mts.variants():
+        afs[variant.site.id] = np.sum(variant.genotypes)/(2*nSamples)
+    ###### randomly select sites based on AF in 1240k panel ######
+    hist, bound = pickle.load(open('/mnt/archgen/users/yilei/IBDsim/allelfreq1240k/AFHistByChr.pkl', 'rb'))[ch]
+    for i, count in enumerate(hist):
+        low, high = bound[i], bound[i+1]
+        sitesInBin = np.where((afs>=low) & (afs<high))[0]
+        # randomly select count number of sites from sitesInBin
+        site2keep[np.random.choice(sitesInBin, size=min(count, len(sitesInBin)), replace=False)] = True
+    # negate site2keep
+
+        
+    if os.path.isfile(os.path.join(outFolder, f"vcf/chr{ch}.vcf.gz")):
+        os.remove(os.path.join(outFolder, f"vcf/chr{ch}.vcf.gz"))
+    mts.write_vcf(open(os.path.join(outFolder, f"vcf/chr{ch}.vcf"), 'w'), site_mask=np.logical_not(site2keep), contig_id=ch)
+    os.system('bgzip ' + os.path.join(outFolder, f"vcf/chr{ch}.vcf"))
+    print(f"chr{ch} done, takes {round(time.time()-t1, 3)} seconds.", flush=True)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ############################################# simulations with IM model ##############################################################

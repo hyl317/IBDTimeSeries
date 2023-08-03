@@ -1,7 +1,7 @@
 import numpy as np
 import math
 from scipy.optimize import minimize
-from numba import jit
+from numba import jit, prange
 from scipy.special import logsumexp
 
 @jit(nopython=True)
@@ -71,7 +71,9 @@ def singlePop_2tp_given_vecNe(Ne, G, L, gap, tail=False):
     EK = np.zeros_like(mat1) # this is for gradient calculation
 
     ####################### original implementation ##############
-    for chrLen in G/100:
+    # parallel loop by numba
+    for i in range(len(G)):
+        chrLen = G[i]/100
         # sum over from t=gap+1 to t=gap+len(Ne)
         mat = mat1 + (((2*Tvec - gap)**2)@(chrLen - Lvec))*common_part
         EK += mat
@@ -92,12 +94,12 @@ def singlePop_2tp_given_vecNe(Ne, G, L, gap, tail=False):
 
     cumprod_logsum = tmp[:-1]
     grad = np.zeros((nGen, nBins))
-    for i in np.arange(nGen):
+    for i in range(nGen):
         part1 = -np.log(2) -2*np.log(Ne[i]) + cumprod_logsum[i]
         part1 = -np.exp(part1)
         part2 = -np.log(2) -2*np.log(Ne[i]) - np.log(2*Ne[i+1:]) + cumprod_logsum[i+1:] - np.log(1-1/(2*Ne[i]))
         part2 = np.exp(part2)
-        for j in np.arange(nBins):
+        for j in range(nBins):
             grad[i,j] = part1*EK[i,j] + np.sum(part2*EK[i+1:,j])
 
     return accu, grad

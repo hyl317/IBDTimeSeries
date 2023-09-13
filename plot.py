@@ -52,8 +52,8 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, t
     gaps = gaps_adjusted
 
     # set up the canvas
-    index = 0
-    for id1, id2 in itertools.combinations_with_replacement(popLabels, 2):
+    for index, pairs in enumerate(itertools.combinations_with_replacement(popLabels, 2)):
+        id1, id2 = pairs
         id1, id2 = min(id1, id2), max(id1, id2)
         ibd_simulated = []
         for ch in ch_len_dict.keys():
@@ -69,8 +69,10 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, t
         i, j = index//ncol, index%ncol
         ax = fig.add_subplot(gs[i,j])
         
-        index += 1
-        ax.scatter(midpoint, x, label='Observed IBD sharing', s=3.0, color='grey')
+        if index == 0:
+            ax.scatter(midpoint, x, label='Observed IBD sharing', s=3.0, color='grey')
+        else:
+            ax.scatter(midpoint, x, s=3.0, color='grey')
 
         # plot fit from estimated Ne
         low1, high1 = timeBoundDict[id1]
@@ -83,7 +85,10 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, t
                 lambda_, _ = singlePop_2tp_given_vecNe(estNe[age_:], L, midpoint, abs(gaps[id1]+i - gaps[id2]-j))
                 lambda_accu += weight_per_combo*lambda_
         meanNumIBD_expectation = 4*(step/100)*lambda_accu
-        ax.plot(midpoint, meanNumIBD_expectation, label='Expected IBD sharing from inferred Ne', color='red', linewidth=0.75)
+        if index == 0:
+            ax.plot(midpoint, meanNumIBD_expectation, label='Expected IBD sharing from inferred Ne', color='red', linewidth=0.75)
+        else:
+            ax.plot(midpoint, meanNumIBD_expectation, color='red', linewidth=0.75)
 
         if (not FP is None) and (not R is None) and (not POWER is None):
             bins_calc = np.arange(minL_calc, maxL_calc+step, step)
@@ -101,7 +106,10 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, t
                     lambda_accu += weight_per_combo*lambda_
             meanNumIBD_theory = lambda_accu[s:e+1]
             meanNumIBD_theory = 4*(step/100)*meanNumIBD_theory
-            ax.plot(midpoint, meanNumIBD_theory, color='orange', label='Expected IBD sharing from inferred Ne (with error correction)', linewidth=0.75)
+            if index == 0:
+                ax.plot(midpoint, meanNumIBD_theory, color='orange', label='Expected IBD sharing from inferred Ne (with error correction)', linewidth=0.75)
+            else:
+                ax.plot(midpoint, meanNumIBD_theory, color='orange', linewidth=0.75)
 
 
         ##### plot a dashed vertical line to indicate which subset of IBD is used in inference
@@ -109,9 +117,14 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, t
 
         ax.set_yscale('log')
         title = f'({id1}:{gaps[id1]}, {id2}:{gaps[id2]})' if id1 != id2 else f'{id1}:{gaps[id1]}'
-        ax.set_title(title, fontsize=4)
-        ax.tick_params(labelsize=4)
+        ax.set_title(title, fontsize=8)
+        ax.tick_params(labelsize=6)
     
+    plt.figlegend(loc='lower center', fontsize=6)
+    plt.subplots_adjust(bottom=0.2)  # Adjust the value as needed
+    # add horizontal text at x=0.5, y=0.1
+    fig.text(0.5, 0.125, 'IBD Segment Length (cM)', ha='center', va='center', fontsize=12)
+    fig.text(0.05, 0.5, '# of Segments per Pair', ha='center', va='center', rotation='vertical', fontsize=12)
     plt.savefig(os.path.join(outFolder, f'{prefix}.fit.png'), dpi=300, bbox_inches = "tight")
     plt.savefig(os.path.join(outFolder, f'{prefix}.fit.pdf'), bbox_inches = "tight")
     plt.clf()

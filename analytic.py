@@ -183,7 +183,7 @@ def singlePop_2tp_given_Ne_negLoglik(Ne, histogram, binMidpoint, G, age1, age2, 
     loglik_each_bin = histogram*np.log(lambdas) - lambdas
     return -np.sum(loglik_each_bin[s:e])
 
-def singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histogram, binMidpoint, G, age1, age2, Tmax, numPairs, timeBound,\
+def singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histogram, binMidpoint, chrlens, age1, age2, Tmax, numPairs, timeBound,\
         s=0, e=-1, FP=None, R=None, POWER=None, tail=False):
     # G: chromosome length, given in cM
     # binMidPoint: given in cM
@@ -200,9 +200,9 @@ def singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histogram, binMidpoint, G,
         for j in np.arange(low2, high2+1):
             age_ = max(age1+i, age2+j)
             if (FP is None) or (R is None) or (POWER is None):
-                lambdas, grad_mat = singlePop_2tp_given_vecNe(Ne[age_:Tmax+age_], G, binMidpoint, abs((age1+i) - (age2+j)), tail=tail)
+                lambdas, grad_mat = singlePop_2tp_given_vecNe(Ne[age_:Tmax+age_], chrlens, binMidpoint, abs((age1+i) - (age2+j)), tail=tail)
             else:
-                lambdas, grad_mat = singlePop_2tp_given_vecNe_withError(Ne[age_:Tmax+age_], G, binMidpoint, abs((age1+i) - (age2+j)), FP, R, POWER)
+                lambdas, grad_mat = singlePop_2tp_given_vecNe_withError(Ne[age_:Tmax+age_], chrlens, binMidpoint, abs((age1+i) - (age2+j)), FP, R, POWER)
             lambda_accu += weight_per_combo*lambdas
             grad_accu[age_:Tmax+age_,:] += weight_per_combo*grad_mat
     

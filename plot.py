@@ -9,14 +9,14 @@ import matplotlib.pyplot as plt
 from scipy.special import logsumexp
 from analytic import singlePop_2tp_given_vecNe, singlePop_2tp_given_vecNe_withError, computePosteriorTMRCA, twoPopIM_given_coalRate, twoPopIM_given_coalRate_withError
 
-def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, timeBoundDict, prefix="pairwise", \
+def plot_pairwise_fitting(ibds, dates, nHaplotypePairs, ch_len_dict, estNe, outFolder, timeBoundDict, prefix="pairwise", \
         minL_calc=2.0, maxL_calc=24, minL_infer=6.0, maxL=20.0, step=0.25, minL_plot=6.0, FP=None, R=None, POWER=None):
 
     bins = np.arange(minL_plot, maxL+step, step)
     midpoint = (bins[1:]+bins[:-1])/2
     L = np.array([v for _, v in ch_len_dict.items()])
 
-    popLabels = nSamples.keys()
+    popLabels = dates.keys()
     n = len(popLabels)
     numSubplot = int(n*(n+1)/2)
     # let's say we fix the number of columns to be 5
@@ -32,11 +32,11 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, t
     #         offset = time
 
     ## adjust time if the timebound is specified
-    t_min = np.min(list(gaps.values()))
-    t_max = np.max(list(gaps.values()))
+    t_min = np.min(list(dates.values()))
+    t_max = np.max(list(dates.values()))
     i_min = -1
     i_max = -1
-    for k, v in gaps.items():
+    for k, v in dates.items():
         if v == t_min:
             i_min = k
         if v == t_max:
@@ -46,10 +46,10 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, t
     t_min += timeBoundDict[i_min][0] # here t_min is either 0 or negative
     t_max += timeBoundDict[i_max][1]
     ### shift each sample cluster's time by |t_min|
-    gaps_adjusted = {}
-    for k, v in gaps.items():
-        gaps_adjusted[k] = v + abs(t_min)
-    gaps = gaps_adjusted
+    dates_adjusted = {}
+    for k, v in dates.items():
+        dates_adjusted[k] = v + abs(t_min)
+    dates = dates_adjusted
 
     # set up the canvas
     for index, pairs in enumerate(itertools.combinations_with_replacement(popLabels, 2)):
@@ -61,8 +61,7 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, t
                 ibd_simulated.extend(ibds[(id1, id2)][ch])
         
         # plot the simulated/observed IBD counts
-        n1, n2 = nSamples[id1], nSamples[id2]
-        npairs = n1*n2 if id1 != id2 else n1*(n1-1)/2
+        npairs = nHaplotypePairs[(id1, id2)]/4 # we plot IBD counts for pairs of diploid individuals
         x, _ = np.histogram(ibd_simulated, bins=bins)
         x = np.array(x)/npairs
         
@@ -81,8 +80,8 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, t
         lambda_accu = np.zeros(len(midpoint))
         for i in np.arange(low1, high1+1):
             for j in np.arange(low2, high2+1):
-                age_ = max(gaps[id1]+i, gaps[id2]+j)
-                lambda_, _ = singlePop_2tp_given_vecNe(estNe[age_:], L, midpoint, abs(gaps[id1]+i - gaps[id2]-j))
+                age_ = max(dates[id1]+i, dates[id2]+j)
+                lambda_, _ = singlePop_2tp_given_vecNe(estNe[age_:], L, midpoint, abs(dates[id1]+i - dates[id2]-j))
                 lambda_accu += weight_per_combo*lambda_
         meanNumIBD_expectation = 4*(step/100)*lambda_accu
         if index == 0:
@@ -101,8 +100,8 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, t
             lambda_accu = np.zeros(len(binMidpoint))
             for i in np.arange(low1, high1+1):
                 for j in np.arange(low2, high2+1):
-                    age_ = max(gaps[id1]+i, gaps[id2]+j)
-                    lambda_, _ = singlePop_2tp_given_vecNe_withError(estNe[age_:], L, binMidpoint, abs(gaps[id1]+i - gaps[id2]-j), FP, R, POWER)
+                    age_ = max(dates[id1]+i, dates[id2]+j)
+                    lambda_, _ = singlePop_2tp_given_vecNe_withError(estNe[age_:], L, binMidpoint, abs(dates[id1]+i - dates[id2]-j), FP, R, POWER)
                     lambda_accu += weight_per_combo*lambda_
             meanNumIBD_theory = lambda_accu[s:e+1]
             meanNumIBD_theory = 4*(step/100)*meanNumIBD_theory
@@ -116,7 +115,7 @@ def plot_pairwise_fitting(ibds, gaps, nSamples, ch_len_dict, estNe, outFolder, t
         ax.axvline(minL_infer, 0, 1, color='k', linestyle='--', linewidth=0.5)
 
         ax.set_yscale('log')
-        title = f'({id1}:{gaps[id1]}, {id2}:{gaps[id2]})' if id1 != id2 else f'{id1}:{gaps[id1]}'
+        title = f'({dates[id1]}, {dates[id2]})' if id1 != id2 else f'{dates[id1]}'
         ax.set_title(title, fontsize=8)
         ax.tick_params(labelsize=6)
     

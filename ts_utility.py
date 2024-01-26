@@ -81,7 +81,8 @@ def multi_run(fun, prms, processes = 4, output=False):
         raise RuntimeWarning("Nothing to run! Please check input.")
     return results
 
-def timeSampling_singlePop_2tp_chrom(gap, Ne, demography=None, chr=20, minLen=4.0, record_full_arg=True):
+def timeSampling_singlePop_2tp_chrom(gap, Ne, demography=None, \
+                            chr=20, minLen=4.0, record_full_arg=True, record_TMRCA=False):
     # draw a single haplotpye from two time point, one at the present time, and the other $gap generations backward in time
     # return the IBD segments between these two haplotypes
     path2Map = f"/mnt/archgen/users/yilei/Data/Hapmap/genetic_map_GRCh37_chr{chr}.txt"
@@ -106,7 +107,10 @@ def timeSampling_singlePop_2tp_chrom(gap, Ne, demography=None, chr=20, minLen=4.
             record_provenance=False, record_full_arg=record_full_arg, ploidy=1)
 
     # extract IBD segments
-    ibd = ibd_segments_full_ARGs(ts, 0, 1, bps, cMs, maxGen=np.inf, minLen=minLen)
+    if not record_TMRCA:
+        ibd = ibd_segments_full_ARGs(ts, 0, 1, bps, cMs, maxGen=np.inf, minLen=minLen)
+    else:
+        ibd = ibd_segments_full_ARGs_plusTMRCA(ts, 0, 1, bps, cMs, maxGen=np.inf, minLen=minLen)
     return ibd
 
 def getPath(tree, s, t):

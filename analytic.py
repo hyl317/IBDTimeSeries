@@ -215,37 +215,42 @@ def singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histogram, binMidpoint, G,
     grad = -numPairs*(step/100)*np.sum((histogram/lambda_accu - 1).reshape((1, len(histogram)))*grad_accu, axis=1).flatten()
     return -np.sum(loglik_each_bin), grad
 
-# def singlePop_2tp_given_vecNe_negLoglik_noPenalty_normalized(Ne, histogram, binMidpoint, G, age1, age2, Tmax, numPairs, timeBound,\
-#         s=0, e=-1, FP=None, R=None, POWER=None, tail=False):
-#     # G: chromosome length, given in cM
-#     # binMidPoint: given in cM
-#     # timeBound: a list of two tuples, for example, [(-2,3), (-4,2)], which gives the time range (in generations, relative to the mean age) of the first and second sampling clusters.
-#     assert(len(histogram) == len(binMidpoint))
-#     step = binMidpoint[1] - binMidpoint[0]
+def singlePop_2tp_given_vecNe_DevStat_noPenalty(Ne, histogram, binMidpoint, G, age1, age2, Tmax, numPairs, timeBound,\
+        s=0, e=-1, FP=None, R=None, POWER=None, tail=False):
+    # G: chromosome length, given in cM
+    # binMidPoint: given in cM
+    # timeBound: a list of two tuples, for example, [(-2,3), (-4,2)], which gives the time range (in generations, relative to the mean age) of the first and second sampling clusters.
+    assert(len(histogram) == len(binMidpoint))
+    step = binMidpoint[1] - binMidpoint[0]
     
-#     low1, high1 = timeBound[0]
-#     low2, high2 = timeBound[1]
-#     weight_per_combo = 1/((high1+1-low1)*(high2+1-low2))
-#     grad_accu = np.zeros((len(Ne), len(binMidpoint)))
-#     lambda_accu = np.zeros(len(binMidpoint))
-#     for i in np.arange(low1, high1+1):
-#         for j in np.arange(low2, high2+1):
-#             age_ = max(age1+i, age2+j)
-#             if (FP is None) or (R is None) or (POWER is None):
-#                 lambdas, grad_mat = singlePop_2tp_given_vecNe(Ne[age_:Tmax+age_], G, binMidpoint, abs((age1+i) - (age2+j)), tail=tail)
-#             else:
-#                 lambdas, grad_mat = singlePop_2tp_given_vecNe_withError(Ne[age_:Tmax+age_], G, binMidpoint, abs((age1+i) - (age2+j)), FP, R, POWER)
-#             lambda_accu += weight_per_combo*lambdas
-#             grad_accu[age_:Tmax+age_,:] += weight_per_combo*grad_mat
+    low1, high1 = timeBound[0]
+    low2, high2 = timeBound[1]
+    weight_per_combo = 1/((high1+1-low1)*(high2+1-low2))
+    grad_accu = np.zeros((len(Ne), len(binMidpoint)))
+    lambda_accu = np.zeros(len(binMidpoint))
+    for i in np.arange(low1, high1+1):
+        for j in np.arange(low2, high2+1):
+            age_ = max(age1+i, age2+j)
+            if (FP is None) or (R is None) or (POWER is None):
+                lambdas, grad_mat = singlePop_2tp_given_vecNe(Ne[age_:Tmax+age_], G, binMidpoint, abs((age1+i) - (age2+j)), tail=tail)
+            else:
+                lambdas, grad_mat = singlePop_2tp_given_vecNe_withError(Ne[age_:Tmax+age_], G, binMidpoint, abs((age1+i) - (age2+j)), FP, R, POWER)
+            lambda_accu += weight_per_combo*lambdas
+            grad_accu[age_:Tmax+age_,:] += weight_per_combo*grad_mat
     
-#     # subset to segment length range of interest for inference
-#     histogram = histogram[s:e]
-#     lambda_accu = lambda_accu[s:e]
-#     grad_accu = grad_accu[:, s:e]
-#     lambda_accu = lambda_accu*(step/100)
-#     loglik_each_bin = (histogram/numPairs)*np.log(lambda_accu) - lambda_accu
-#     grad = -(1/numPairs)*(step/100)*np.sum((histogram/lambda_accu - 1).reshape((1, len(histogram)))*grad_accu, axis=1).flatten()
-#     return -np.sum(loglik_each_bin), grad
+    # subset to segment length range of interest for inference
+    histogram = histogram[s:e]
+    lambda_accu = lambda_accu[s:e]
+    grad_accu = grad_accu[:, s:e]
+    lambda_accu = lambda_accu*numPairs*(step/100)
+    dev_stat_each_bin = 2*(histogram*(np.log(histogram) - np.log(lambda_accu)) - (histogram - lambda_accu))
+    zero_indice = np.where(histogram == 0)
+    #print(f'zero indice: {zero_indice}')
+    dev_stat_each_bin[zero_indice] = 2*lambda_accu[zero_indice] 
+    dDev_dLmabda = 2*(1 - histogram/lambda_accu) # will this division cause numerical instability?
+    grad = numPairs*(step/100)*np.sum(dDev_dLmabda.reshape((1, len(histogram)))*grad_accu, axis=1).flatten()
+    #print(f'dev stat: {np.sum(dev_stat_each_bin)}')
+    return np.sum(dev_stat_each_bin), grad
 
 
 ################################################### code for estimating cross coal rate #########################################################

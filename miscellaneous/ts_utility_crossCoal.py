@@ -1,6 +1,6 @@
 import msprime
 import numpy as np
-from .ts_utility import readHapMap, ibd_segments_full_ARGs, ibd_segments_full_ARGs_plusTMRCA
+from ..ts_utility import readHapMap, ibd_segments_full_ARGs, ibd_segments_full_ARGs_plusTMRCA
 
 def IM_chrom(demography, chr=20, minLen=4.0, record_full_arg=True, samplingtime=(0,0), record_tmrca=False):
     # draw a single haplotpye from two time point, one at the present time, and the other $gap generations backward in time

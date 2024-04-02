@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 import itertools
 from collections import defaultdict
@@ -7,8 +8,9 @@ from scipy.stats import norm
 from analytic import singlePop_2tp_given_Ne_negLoglik, \
     singlePop_2tp_given_vecNe_negLoglik_noPenalty,\
     singlePop_2tp_given_vecNe_DevStat_noPenalty
+from inference_utility import get_ibdHistogram_by_sampleCluster
 from ts_utility import multi_run
-from plot import plot_pairwise_fitting, plot_pairwise_TMRCA, plotPosteriorTMRCA, plot2PopIMfit
+from plot import plot_pairwise_fitting, plot_pairwise_TMRCA, plot2PopIMfit
 import matplotlib.pyplot as plt
 import pickle
 import warnings
@@ -19,8 +21,10 @@ import os
 import time
 import math
 from numba import prange
+from tqdm import tqdm
+import multiprocessing as mp
 
-ch_len_dict = {1:286.279, 2:268.840, 3:223.361, 4:214.688, 5:204.089, 6:192.040, 7:187.221, 8:168.003, 9:166.359, \
+ch_len_dict_default = {1:286.279, 2:268.840, 3:223.361, 4:214.688, 5:204.089, 6:192.040, 7:187.221, 8:168.003, 9:166.359, \
         10:181.144, 11:158.219, 12:174.679, 13:125.706, 14:120.203, 15:141.860, 16:134.038, 17:128.491, 18:117.709, \
         19:107.734, 20:108.267, 21:62.786, 22:74.110}
 
@@ -44,6 +48,19 @@ def inferConstNe_singlePop_MultiTP(histograms, binMidpoint, dates, nHaplotypePai
     kargs = (histograms, binMidpoint, chrlens, dates, nHaplotypePairs, timeBoundDict, s, e, FP, R, POWER)
     res = minimize(singlePop_MultiTP_given_Ne_negLoglik, Ninit, args=kargs, method='L-BFGS-B', bounds=[(10, 5e6)])
     return res.x[0]
+
+def singlePop_MultiTP_given_vecNe_DevStat(Ne, histograms, binMidpoint, chrlens, dates, nHaplotypePairs, Tmax, timeBoundDict, \
+                                            s=0, e=-1, FP=None, R=None, POWER=None):
+    accu = 0.0
+    for (clusterID1, clusterID2), nHaplotypePair in nHaplotypePairs.items():
+        if nHaplotypePair == 0:
+            continue
+        clusterID1, clusterID2 = min(clusterID1, clusterID2), max(clusterID1, clusterID2)
+        accu_, _ = singlePop_2tp_given_vecNe_DevStat_noPenalty(Ne, histograms[(clusterID1, clusterID2)],
+            binMidpoint, chrlens, dates[clusterID1], dates[clusterID2], Tmax, nHaplotypePair, 
+            [timeBoundDict[clusterID1], timeBoundDict[clusterID2]], s=s, e=e, FP=FP, R=R, POWER=POWER)
+        accu += accu_
+    return accu
 
 def singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, chrlens, dates, nHaplotypePairs, Tmax, alpha, beta, timeBoundDict, \
                                             s=0, e=-1, FP=None, R=None, POWER=None, tail=False):
@@ -110,14 +127,14 @@ def singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, chrlens
 
     return accu, grad
 
-def bootstrap_single_run(ch_ids, ibds_by_chr, dates, nHaplotypePairs, ch_len_dict, 
+def bootstrap_single_run(histograms, chrlens, dates, nHaplotypePairs, 
         timeBoundDict, Ninit=500, Tmax=100,
         minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0,
         step=0.1, alpha=1e-6, beta=1e-4, method='l2', FP=None, R=None, POWER=None, verbose=False):
     # perform one bootstrap resampling
-
+    bins = np.arange(minL_calc, maxL_calc+step, step=step)
+    binMidpoint = (bins[1:] + bins[:-1])/2
     ###################### First, infer a const Ne ################################
-    histograms, binMidpoint, chrlens = prepare_input(ibds_by_chr, ch_ids, ch_len_dict, dates.keys(), minL=minL_calc, maxL=maxL_calc, step=step)
     bins_infer = np.arange(minL_infer, maxL_infer+step, step)
     binMidpoint_infer = (bins_infer[1:] + bins_infer[:-1])/2
     s = np.where(np.isclose(binMidpoint, binMidpoint_infer[0]))[0][0]
@@ -152,11 +169,10 @@ def bootstrap_single_run(ch_ids, ibds_by_chr, dates, nHaplotypePairs, ch_len_dic
     NinitVec = np.random.normal(Nconst, Nconst/25, Tmax + (t_max - t_min))
     ###################### the following is just some diagnostics for myself ############################
     for clusterID in dates.keys():
-        ibds_, nHaplotypePairs_ = {}, {}
-        ibds_[(clusterID, clusterID)] = ibds_by_chr[(clusterID, clusterID)]
+        histograms_, nHaplotypePairs_ = {}, {}
+        histograms_[(clusterID, clusterID)] = histograms[(clusterID, clusterID)]
         nHaplotypePairs_[(clusterID, clusterID)] = nHaplotypePairs[(clusterID, clusterID)]
-        histograms_, binMidpoint_, chrlens_ = prepare_input(ibds_, np.arange(1,23), ch_len_dict, [clusterID], minL=minL_calc, maxL=maxL_calc, step=step)
-        constNe = inferConstNe_singlePop_MultiTP(histograms_, binMidpoint_, {clusterID:0}, nHaplotypePairs_, Ninit, chrlens_, timeBoundDict, s, e, FP, R, POWER)
+        constNe = inferConstNe_singlePop_MultiTP(histograms_, binMidpoint, {clusterID:0}, nHaplotypePairs_, Ninit, chrlens, timeBoundDict, s, e, FP, R, POWER)
         if verbose:
             print(f'constNe for {clusterID} is {constNe}')
     #####################################################################################################
@@ -174,23 +190,26 @@ def bootstrap_single_run(ch_ids, ibds_by_chr, dates, nHaplotypePairs, ch_len_dic
     else:
         raise RuntimeError('Unsupported Method')
 
-def bootstrap(func, resample_chrs, nprocess, *args):
+def bootstrap_single_run_wrapper(args):
+    return bootstrap_single_run(*args)
+
+def bootstrap(func, histogram_list, chrlens_list, nprocess, *args):
     """
     fullResults: whether to return the full results of individual bootstrap resampling
     """
     # perform bootstrap resampling, and then return the 95% CI of the estimated Ne trajectory
     time1 = time.time()
     args = list(args)
-    params = [[resample_chr, *args] for resample_chr in resample_chrs]
-    results = multi_run(func, params, processes=nprocess, output=True)
+    params = [[histogram, chrlens, *args] for histogram, chrlens in zip(histogram_list, chrlens_list)]
+    with mp.Pool(processes = nprocess) as pool:
+        results = list(tqdm(pool.imap(func, params), total=len(chrlens_list)))
     results_aggregate = np.zeros((len(results), len(results[0])))
     for i in range(len(results)):
         results_aggregate[i] = results[i]
     results_aggregate_sorted = np.sort(results_aggregate, axis=0)
     print(f'bootstrap takes {time.time() - time1:.3f}s')
 
-    index = int(2.5/(100/len(resample_chrs)))
-    return results_aggregate_sorted[index-1], results_aggregate_sorted[-index]
+    return results_aggregate_sorted
 
     
 
@@ -212,13 +231,22 @@ def prepare_input(ibds_by_chr, ch_ids, ch_len_dict, clusterIDs, minL=4.0, maxL=2
     return histograms, binMidpoint, np.array(chrlens)
 
 
-def inferVecNe_singlePop_MultiTP(ibds_by_chr, dates, nSamples, ch_len_dict, timeBoundDict=None, Ninit=500, Tmax=100, \
+def inferVecNe_singlePop_MultiTP(df_ibd, sampleCluster2id, dates, ch_len_dict=None, timeBoundDict=None, Ninit=500, Tmax=100, \
         minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0,
-        step=0.1, alpha=2500, beta=250, method='l2', FP=None, R=None, POWER=None, nprocess=6, plot=False, prefix="", \
-        verbose=True, doBootstrap=True, autoHyperParam=False, outFolder='.'):
+        step=0.1, alpha=2500, beta=250, method='l2', FP=None, R=None, POWER=None, plot=False, prefix="", \
+        verbose=True, doBootstrap=True, autoHyperParam=False, outFolder='.', parallel=True, nprocess=10):
     """
     Parameter
     ---------
+    df_ibd: pandas dataframe
+        A dataframe with each row being a IBD segment. It must have at least 4 columns: "iid1", "iid2", "ch", "lengthM". Note that the length is in Morgan.
+        It is fine to have more than these columns, but those extra columns will not be used.
+    sampleCluster2id: dictionary
+        A dictionary mapping sample clusterID to sample IID that belong to that cluster. Samples in the same sample cluster should be dated to the same or very similar date.
+    dates: dictionary
+        A dictionary mapping sample clusterID to the date (in generations ago) of that sample cluster. The most recent sample cluster must be labeled as generation 0. All other dates are relative to this most recent date.
+    nSamples: dictionary
+        A dictionary mapping sample clusterID to the number of samples in that cluster.
     timeBound: dict
         A dictionary specifying the dating uncertainty of each of the sampling cluster. For example, 1:(-2,3) means that the dating of the sample cluster 1
         is distributed from 2 generations more recent, to 3 generations older than the time point given in the parameter gaps. We assume a uniform distribution across this range.
@@ -228,32 +256,48 @@ def inferVecNe_singlePop_MultiTP(ibds_by_chr, dates, nSamples, ch_len_dict, time
         warnings.warn('Error model not provided... Setting the length range used for calculation and inference to be the same.')
         minL_calc = minL_infer
         maxL_calc = maxL_infer
-
+    print(f'min IBD length: {np.min(df_ibd["lengthM"].values)}')
     # estimate Ne using the original data
+    if ch_len_dict is None:
+        ch_len_dict = ch_len_dict_default
     ch_ids = [k for k, v in ch_len_dict.items()]
+    chrlens = np.array([l for _, l in ch_len_dict.items()])
     if not timeBoundDict:
         timeBoundDict = {}
-        for id, _ in nSamples.items():
-            timeBoundDict[id] = (0, 0)
+        for clusterID, _ in dates.items():
+            timeBoundDict[clusterID] = (0, 0)
     assert(np.min(list(dates.values())) == 0) # the most recent sample cluster must be labeled as generation 0
     # calculate # of haplotype pairs for each pairs of sample clusters
     nHaplotypePairs = {}
     for clusterID1, clusterID2 in itertools.combinations_with_replacement(dates.keys(), 2):
         clusterID1, clusterID2 = min(clusterID1, clusterID2), max(clusterID1, clusterID2)
+        nSample1 = len(sampleCluster2id[clusterID1])
+        nSample2 = len(sampleCluster2id[clusterID2])
         if clusterID1 == clusterID2:
-            nHaplotypePairs[(clusterID1, clusterID2)] = 2*nSamples[clusterID1]*(2*nSamples[clusterID1]-2)/2
+            nHaplotypePairs[(clusterID1, clusterID2)] = 2*nSample1*(2*nSample1-2)/2
         else:
-            nHaplotypePairs[(clusterID1, clusterID2)] = 2*nSamples[clusterID1]*2*nSamples[clusterID2]
+            nHaplotypePairs[(clusterID1, clusterID2)] = 2*nSample1*2*nSample2
     print(f'number of haplotype pairs: {nHaplotypePairs}')
     #### do hyperparameter search if needed
     if autoHyperParam:
-        pass
-        # alpha = hyperparam_opt_DevStat(ibds_by_chr, dates, nSamples, ch_len_dict, timeBoundDict, Ninit=Ninit, Tmax=Tmax, \
+        # t1 = time.time()
+        # _, _, alpha = hyperparam_kfold_parallel(df_ibd, sampleCluster2id, dates, chrlens, timeBoundDict,
+        #             kfold=5, Ninit=Ninit, Tmax=Tmax,
         #             minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer,
-        #             step=step, beta=beta, weighted=weighted, prefix=prefix, outfolder=outFolder, history=True)
-        # print(f'overwrite alpha to be {alpha}, determined by automatic hyperparameter search.')
+        #             FP=FP, R=R, POWER=POWER, step=step, beta=beta, 
+        #             prefix=prefix, outfolder=outFolder, save=True)
+        # print(f'parallel hyperparameter search takes {time.time() - t1:.3f}s')
+        t1 = time.time()
+        alpha = hyperparam_kfold(df_ibd, sampleCluster2id, dates, chrlens, timeBoundDict, 
+                    kfold=5, Ninit=Ninit, Tmax=Tmax,
+                    minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer,
+                    FP=FP, R=R, POWER=POWER, step=step, beta=beta, 
+                    prefix=prefix, outfolder=outFolder, save=True, parallel=parallel, nprocess=nprocess)
+        print(f'hyperparameter search takes {time.time() - t1:.3f}s')
 
-    Ne = bootstrap_single_run(ch_ids, ibds_by_chr, dates, nHaplotypePairs, ch_len_dict, timeBoundDict, Ninit=Ninit, Tmax=Tmax, \
+    bins = np.arange(minL_calc, maxL_calc+step, step=step)
+    histograms = get_ibdHistogram_by_sampleCluster(df_ibd, sampleCluster2id, bins, ch_ids)
+    Ne = bootstrap_single_run(histograms, chrlens, dates, nHaplotypePairs, timeBoundDict, Ninit=Ninit, Tmax=Tmax, \
         minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, \
         step=step, alpha=alpha, beta=beta, method=method, FP=FP, R=R, POWER=POWER, verbose=verbose)
     if plot:
@@ -261,9 +305,9 @@ def inferVecNe_singlePop_MultiTP(ibds_by_chr, dates, nSamples, ch_len_dict, time
             plot_prefix = "pairwise." + prefix
         else:
             plot_prefix = "pairwise"
-        min_plot = math.floor(min(itertools.chain.from_iterable(ibdlist for dict in ibds_by_chr.values() for ibdlist in dict.values())))
+        min_plot = math.floor(np.min(100*df_ibd['lengthM'].values))
         print(f'minL for plotting: {min_plot}')
-        plot_pairwise_fitting(ibds_by_chr, dates, nHaplotypePairs, ch_len_dict, Ne, outFolder, timeBoundDict, prefix=plot_prefix, \
+        plot_pairwise_fitting(df_ibd, sampleCluster2id, dates, nHaplotypePairs, ch_len_dict, Ne, outFolder, timeBoundDict, prefix=plot_prefix, \
             minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL=maxL_infer, step=step, minL_plot=min_plot, FP=FP, R=R, POWER=POWER)
         plot_pairwise_TMRCA(dates, Ne, Tmax, outFolder, prefix=plot_prefix, minL=minL_infer, maxL=maxL_infer, step=0.25)
 
@@ -272,17 +316,26 @@ def inferVecNe_singlePop_MultiTP(ibds_by_chr, dates, nSamples, ch_len_dict, time
         nresample = 200
         ch_ids = [k for k, v in ch_len_dict.items()]
         resample_chrs = [ np.random.choice(ch_ids, size=len(ch_ids)) for i in range(nresample)]
-        bootstrap_results = np.full((nresample, len(Ne)), np.nan)
-        time1 = time.time()
-        for i in prange(nresample):
-            bootstrap_results[i] = bootstrap_single_run(resample_chrs[i], ibds_by_chr, 
-                dates, nHaplotypePairs, ch_len_dict, timeBoundDict, Ninit=Ninit, Tmax=Tmax, 
-                minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer,
-                step=step, alpha=alpha, beta=beta, method=method, FP=FP, R=R, POWER=POWER, verbose=False)
-        bootstrap_results_sorted = np.sort(bootstrap_results, axis=0)
-        print(f'bootstrap takes {time.time() - time1:.3f}s')
-        # lowCI, upCI = bootstrap(bootstrap_single_run, resample_chrs, nprocess, ibds_by_chr, dates, nHaplotypePairs, ch_len_dict, timeBoundDict, Ninit, Tmax, \
-        #     minL_calc, maxL_calc, minL_infer, maxL_infer, step, alpha, beta, method, FP, R, POWER, False)
+        if not parallel:
+            bootstrap_results = np.full((nresample, len(Ne)), np.nan)
+            time1 = time.time()
+            for i in tqdm(range(nresample)):
+                histograms = get_ibdHistogram_by_sampleCluster(df_ibd, sampleCluster2id, bins, resample_chrs[i])
+                chrlens = np.array([ch_len_dict[ch] for ch in resample_chrs[i]])
+                bootstrap_results[i] = bootstrap_single_run(histograms, chrlens, 
+                    dates, nHaplotypePairs, timeBoundDict, Ninit=Ninit, Tmax=Tmax, 
+                    minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer,
+                    step=step, alpha=alpha, beta=beta, method=method, FP=FP, R=R, POWER=POWER)
+            bootstrap_results_sorted = np.sort(bootstrap_results, axis=0)
+            print(f'sequential bootstrap takes {time.time() - time1:.3f}s')
+        else:
+            time1 = time.time()
+            histogram_list = [ get_ibdHistogram_by_sampleCluster(df_ibd, sampleCluster2id, bins, resample_chr) for resample_chr in resample_chrs]
+            ch_len_list = [np.array([ch_len_dict[ch] for ch in resample_chr]) for resample_chr in resample_chrs]
+            bootstrap_results_sorted = bootstrap(bootstrap_single_run_wrapper, histogram_list, ch_len_list, nprocess, dates, nHaplotypePairs, timeBoundDict, Ninit, Tmax, \
+                minL_calc, maxL_calc, minL_infer, maxL_infer, step, alpha, beta, method, FP, R, POWER)
+            print(f'parallel bootstrap takes {time.time() - time1:.3f}s')
+
         # create an empty pandas dataframe with three columns named Ne, lowCI, upCI
         df = pd.DataFrame(columns=['Generations', 'Ne', 'lowCI', 'upCI'])
         df['Generations'] = np.arange(1, len(Ne)+1)
@@ -296,51 +349,47 @@ def inferVecNe_singlePop_MultiTP(ibds_by_chr, dates, nSamples, ch_len_dict, time
     return df
 
 
-def inferVecNe_singlePop_MultiTP_withMask(path2IBD, path2ChrDelimiter, path2mask=None, nSamples=-1, path2SampleAge=None, \
+def inferVecNe_singlePop_MultiTP_withMask(path2IBD, path2SampleAge, path2ChrDelimiter, path2mask=None, \
         Ninit=500, Tmax=100, minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0, step=0.1, alpha=2500, beta=0, method='l2', \
         FP=None, R=None, POWER=None, generation_time=29, minSample=10, maxSample=np.inf, merge_level=5, \
-        prefix="", doBootstrap=True, autoHyperParam=False, outFolder='.', run=True):
-    ###### read in a list of samples with their mean BP. If no such info is provided, assume all samples are taken at the same time
-    if path2SampleAge:
-        sampleAgeDict = {}
-        youngest_age = np.inf
-        with open(path2SampleAge) as f:
-            for line in f:
-                iid, BPage, *_ = line.strip().split()
-                BPage = int(BPage)
-                sampleAgeDict[iid] = BPage
-                if BPage < youngest_age:
-                    youngest_age = BPage
-        sampleAgeBinDict = {} # each bin differ by 5 generations
-        for iid, BPage in sampleAgeDict.items():
-            sampleAgeBinDict[iid] = (int(BPage - youngest_age)/generation_time)//merge_level # we bin sample age by 5 generations
-        maxBinIndex = max([int(v) for _, v in sampleAgeBinDict.items()])
-        gaps = {i: merge_level*i for i in range(0, maxBinIndex+1)}
-        nSamples = {i: sum(v == i for _, v in sampleAgeBinDict.items()) for i in range(0, maxBinIndex+1)}
+        prefix="", doBootstrap=True, autoHyperParam=True, outFolder='.', run=True, plot=True, parallel=True, nprocess=10):
+    ###### read in a list of samples with their mean BP. 
+    sampleAgeDict = {}
+    youngest_age = np.inf
+    with open(path2SampleAge) as f:
+        for line in f:
+            iid, BPage, *_ = line.strip().split()
+            BPage = int(BPage)
+            sampleAgeDict[iid] = BPage
+            if BPage < youngest_age:
+                youngest_age = BPage
+    sampleAgeBinDict = {} # each bin differ by 5 generations
+    for iid, BPage in sampleAgeDict.items():
+        sampleAgeBinDict[iid] = (int(BPage - youngest_age)/generation_time)//merge_level # we bin sample age by 5 generations
+    maxBinIndex = max([int(v) for _, v in sampleAgeBinDict.items()])
+    dates = {i: merge_level*i for i in range(0, maxBinIndex+1)}
+    nSamples = {i: sum(v == i for _, v in sampleAgeBinDict.items()) for i in range(0, maxBinIndex+1)}
 
-        exSampleCluster = set()
-        for i in range(0, maxBinIndex+1):
-            n = nSamples[i]
-            if n < minSample or n > maxSample:
-                exSampleCluster.add(i)
-            print(f'{nSamples[i]} samples in age bin {i}({youngest_age + i*merge_level*generation_time} - {youngest_age + (i+1)*merge_level*generation_time}BP): {[k for k, v in sampleAgeBinDict.items() if v == i]}')
-        
-        for i in exSampleCluster:
-            del nSamples[i]
-            del gaps[i]
-        print(f'Bins {[i for i, _ in gaps.items()]} will be used for inference.')
-        
-        timeOffset = np.min(list(gaps.values()))
-        for i in gaps.keys():
-            gaps[i] -= timeOffset
-        
-    else:
-        gaps = {0:0}
-        warnings.warn('No sample age list is provided, assume all samples are taken at the same time...')
-        if nSamples == -1:
-            warnings.warn('Number of samples not provided, assuming all samples occur in the IBD file...')
+    exSampleCluster = set()
+    sampleCluster2id = {}
+    for i in range(0, maxBinIndex+1):
+        n = nSamples[i]
+        if n < minSample or n > maxSample:
+            exSampleCluster.add(i)
         else:
-            nSamples = {0:nSamples}
+            sampleCluster2id[i] = [k for k, v in sampleAgeBinDict.items() if v == i]
+        print(f'{nSamples[i]} samples in age bin {i}({youngest_age + i*merge_level*generation_time} - {youngest_age + (i+1)*merge_level*generation_time}BP): {[k for k, v in sampleAgeBinDict.items() if v == i]}')
+    
+    for i in exSampleCluster:
+        del nSamples[i]
+        del dates[i]
+    print(f'Bins {[i for i, _ in dates.items()]} will be used for inference.')
+    print(sampleCluster2id)
+    
+    timeOffset = np.min(list(dates.values()))
+    for i in dates.keys():
+        dates[i] -= timeOffset
+        
     ################################ End of allocating samples to different time periods #######################
     
     ################################ masking out IBD from potentially problematic genomic regions ################
@@ -391,60 +440,41 @@ def inferVecNe_singlePop_MultiTP_withMask(path2IBD, path2ChrDelimiter, path2mask
         spanlist = [(v[1], v[2]) for k, v in chr_span_dict.items()]
     
         #### Now mask IBD segments and assign them to the correct artificial chromosomes
-        ibds_by_chr = defaultdict(dict)
-        with open(path2IBD) as f:
-            for line in f:
-                iid1, iid2, ch, ibd_start, ibd_end, length = line.strip().split()
-                ch, ibd_start, ibd_end, length = int(ch), float(ibd_start), float(ibd_end), float(length)
-                if sampleAgeBinDict.get(iid1) != None and sampleAgeBinDict.get(iid2) != None:
-                    if path2SampleAge:
-                        pop1, pop2 = min(sampleAgeBinDict[iid1], sampleAgeBinDict[iid2]), max(sampleAgeBinDict[iid1], sampleAgeBinDict[iid2])
-                    else:
-                        pop1 = pop2 = 0
-                else:
+        iid1_list, iid2_list, ch_list, genetic_length_list = [], [], [], []
+        df_ibd = pd.read_csv(path2IBD, sep='\t')
+        for _, row in df_ibd.iterrows():
+            iid1, iid2, ch, ibd_start, ibd_end, length = row['iid1'], row['iid2'], row['ch'], 100*row['StartM'], 100*row['EndM'], 100*row['lengthM']
+            if sampleAgeBinDict.get(iid1) == None or sampleAgeBinDict.get(iid2) == None:
+                continue
+            for i, span in enumerate(spanlist[map[ch]:map[ch+1]]):
+                # ask whether the current segment being read has any overlap with this span of interest
+                span_start, span_end = span
+                if ibd_end <= span_start or ibd_start >= span_end:
                     continue
-                for i, span in enumerate(spanlist[map[ch]:map[ch+1]]):
-                    # ask whether the current segment being read has any overlap with this span of interest
-                    span_start, span_end = span
-                    if ibd_end <= span_start or ibd_start >= span_end:
-                        continue
-                    else:
-                        ibd_start_masked, ibd_end_masked = max(span_start, ibd_start), min(span_end, ibd_end)
-                        if not ibds_by_chr[(pop1, pop2)].get(i+map[ch]):
-                            ibds_by_chr[(pop1, pop2)][i+map[ch]] = []
-                        ibds_by_chr[(pop1, pop2)][i+map[ch]].append(ibd_end_masked - ibd_start_masked)
+                else:
+                    ibd_start_masked, ibd_end_masked = max(span_start, ibd_start), min(span_end, ibd_end)
+                    iid1_list.append(iid1)
+                    iid2_list.append(iid2)
+                    ch_list.append(i+map[ch])
+                    genetic_length_list.append((ibd_end_masked - ibd_start_masked)/100)
+        df_ibd = pd.DataFrame({'iid1':iid1_list, 'iid2':iid2_list, 'ch':ch_list, 'lengthM':genetic_length_list})
     else:
         ########## no mask file provided, thus no masking will be performed ###################
         print(f'no mask file provided, all segments will be used for inference')
         ch_len_dict = {k:v[1]-v[0] for k, v in chrDelimiter.items()}
-        ibds_by_chr = defaultdict(dict)
-        with open(path2IBD) as f:
-            for line in f:
-                iid1, iid2, ch, ibd_start, ibd_end, length = line.strip().split()
-                ch, ibd_start, ibd_end, length = int(ch), float(ibd_start), float(ibd_end), float(length)
-                if sampleAgeBinDict.get(iid1) != None and sampleAgeBinDict.get(iid2) != None:
-                    if path2SampleAge:
-                        pop1, pop2 = min(sampleAgeBinDict[iid1], sampleAgeBinDict[iid2]), max(sampleAgeBinDict[iid1], sampleAgeBinDict[iid2])
-                    else:
-                        pop1 = pop2 = 0
-                    if not ibds_by_chr[(pop1, pop2)].get(ch):
-                        ibds_by_chr[(pop1, pop2)][ch] = []
-                    ibds_by_chr[(pop1, pop2)][ch].append(length)
-                else:
-                    continue
+        df_ibd = pd.read_csv(path2IBD, sep='\t')
+        print(f'######## {np.min(df_ibd["lengthM"].values)}')
 
-    filename = 'ibds_by_chr.pickle' if len(prefix) == 0 else 'ibds_by_chr.' + prefix + '.pickle'
-    if not os.path.exists(outFolder):
-        os.makedirs(outFolder)
-    pickle.dump(ibds_by_chr, open(os.path.join(outFolder, filename), 'wb'))
     ### end of preprocessing of input data, ready to start the inference
     if run:
-        return inferVecNe_singlePop_MultiTP(ibds_by_chr, gaps, nSamples, ch_len_dict, Ninit=Ninit, Tmax=Tmax, \
+        return inferVecNe_singlePop_MultiTP(df_ibd, sampleCluster2id, dates, ch_len_dict, Ninit=Ninit, Tmax=Tmax, \
                 minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, step=step, alpha=alpha, beta=beta, \
-                method=method, FP=FP, R=R, POWER=POWER, plot=True, \
-                prefix=prefix, autoHyperParam=autoHyperParam, doBootstrap=doBootstrap, outFolder=outFolder)
+                method=method, FP=FP, R=R, POWER=POWER, plot=plot, 
+                prefix=prefix, autoHyperParam=autoHyperParam, 
+                doBootstrap=doBootstrap, outFolder=outFolder,
+                parallel=parallel, nprocess=nprocess)
     else:
-        return ibds_by_chr, gaps, nSamples, ch_len_dict, FP, R, POWER
+        return df_ibd, sampleCluster2id, dates, ch_len_dict, FP, R, POWER
 
 
 def hyperparam_opt2(ibds_by_chr, gaps, nSamples, ch_len_dict, timeBoundDict, Ninit=500, Tmax=100, \
@@ -542,13 +572,14 @@ def hyperparam_opt_DevStat(ibds_by_chr, gaps, nSamples, ch_len_dict, timeBoundDi
 
 ###################################################################################################################
 
-def getAvgLoglik_kfold(df_ibd, sampleCluster2id, gaps, ch_len_dict, timeBoundDict, alpha, k_fold, Ninit=500, Tmax=100,
-                       minL_calc=2.0, maxL_calc=22, minL_infer=6.0, maxL_infer=20.0, step=0.1, 
-                       beta=250, FP=None, R=None, POWER=None):
-    logliks = []
-
+def get_ibdHistogram_for_each_train_val_split(df_ibd, sampleCluster2id, k_fold,
+                                            minL_calc=2.0, maxL_calc=22, step=0.1):
+    # this is a map from kfold validation id (from 0 to kfold -1) to a tuple of four dictionaries:
+    # ibdHistogram_train, ibdHistogram_val, nHaplotypePairs_train, nHaplotypePairs_val
+    # each dictionary maps a pair of sample clusters to what their naming suggests
+    ibdHistogram_for_each_train_val_split = {}
     # first, for each pairs of time points, split pairs of samplesby k_fold
-    sampleClusterPairs = [(x,x) for x in sampleCluster2id.keys()] + itertools.combinations(sampleCluster2id.keys(), 2)
+    sampleClusterPairs = list(itertools.combinations_with_replacement(sampleCluster2id.keys(), 2))
     sampleClusterPairs_2_ID_pair_split = {}
     for sampleClusterPair in sampleClusterPairs:
         if sampleClusterPair[0] == sampleClusterPair[1]:
@@ -556,49 +587,165 @@ def getAvgLoglik_kfold(df_ibd, sampleCluster2id, gaps, ch_len_dict, timeBoundDic
         else:
             pairs = list(itertools.product(sampleCluster2id[sampleClusterPair[0]], sampleCluster2id[sampleClusterPair[1]]))
         np.random.shuffle(pairs) # the sequence is modified IN-PLACE
-        sampleClusterPairs_2_ID_pair_split[sampleClusterPair] = np.array_split(pairs, k_fold)
+        sampleClusterPairs_2_ID_pair_split[sampleClusterPair] = np.array_split(pairs, k_fold)        
 
+    bins = np.arange(minL_calc, maxL_calc+step, step)
+    time_accu = 0.0
     for i in range(k_fold):
-        ibds_train = {}
-        ibds_val = {}
+        ibdHistogram_train = {}
+        ibdHistogram_val = {}
+        nHaplotypePairs_train = defaultdict(lambda: 0)
+        nHaplotypePairs_val = defaultdict(lambda: 0)
+        
         # select pairs of samples to use for the validation set
+        time1 = time.time()
         for sampleClusterPair in sampleClusterPairs:
             validation_pairs = sampleClusterPairs_2_ID_pair_split[sampleClusterPair][i]
+            nHaplotypePairs_val[sampleClusterPair] = 4*len(validation_pairs)
             dfs_val = []
             for pair in validation_pairs:
                 dfs_val.append(df_ibd[((df_ibd['iid1'] == pair[0]) & (df_ibd['iid2'] == pair[1]))
                                       | ((df_ibd['iid1'] == pair[1]) & (df_ibd['iid2'] == pair[0]))])
             df_val = pd.concat(dfs_val)
+            hist, _ = np.histogram(100*df_val['lengthM'].values, bins=bins)
+            ibdHistogram_val[sampleClusterPair] = hist
 
             dfs_train = []
             for j in range(k_fold):
                 if j != i:
                     train_pairs = sampleClusterPairs_2_ID_pair_split[sampleClusterPair][j]
+                    nHaplotypePairs_train[sampleClusterPair] += 4*len(train_pairs)
                     for pair in train_pairs:
                         dfs_train.append(df_ibd[((df_ibd['iid1'] == pair[0]) & (df_ibd['iid2'] == pair[1]))
                                       | ((df_ibd['iid1'] == pair[1]) & (df_ibd['iid2'] == pair[0]))])
                 
             df_train = pd.concat(dfs_train)
-            ibds_train[sampleClusterPair] = df_train
-            ibds_val[sampleClusterPair] = df_val
-        
-        # now, we have the training and validation set, we can start the inference
-            
-        
-
-    return np.mean(logliks)
-
+            hist, _ = np.histogram(100*df_train['lengthM'].values, bins=bins)
+            ibdHistogram_train[sampleClusterPair] = hist
+        time_accu += time.time() - time1
+        # convert defaultdict to an ordinary dict
+        nHaplotypePairs_train = dict(nHaplotypePairs_train)
+        nHaplotypePairs_val = dict(nHaplotypePairs_val)
+        ibdHistogram_for_each_train_val_split[i] = (ibdHistogram_train, ibdHistogram_val, nHaplotypePairs_train, nHaplotypePairs_val)
     
+    print(f'time spent on subsetting dataframe: {time_accu:.3f}s')
+    return ibdHistogram_for_each_train_val_split
+
+def getLoglik_kfold(ibdHistogram_for_each_train_val_split, dates, chrlens, timeBoundDict, alpha, k_fold, Ninit=500, Tmax=100,
+                       minL_calc=2.0, maxL_calc=22, minL_infer=6.0, maxL_infer=20.0, step=0.1, 
+                       beta=250, FP=None, R=None, POWER=None):
+
+    logliks = []
+    devstats = []
+    bins = np.arange(minL_calc, maxL_calc+step, step)
+    binMidpoint = (bins[1:] + bins[:-1])/2
+    bins_infer = np.arange(minL_infer, maxL_infer+step, step)
+    binMidpoint_infer = (bins_infer[1:] + bins_infer[:-1])/2
+    s = np.where(np.isclose(binMidpoint, binMidpoint_infer[0]))[0][0]
+    e = np.where(np.isclose(binMidpoint, binMidpoint_infer[-1]))[0][0]
+    for i in range(k_fold):
+        ibdHistogram_train, ibdHistogram_val, nHaplotypePairs_train, nHaplotypePairs_val = ibdHistogram_for_each_train_val_split[i]
+        # now, we have the training and validation set, we can start the inference
+        Ne = bootstrap_single_run(ibdHistogram_train, chrlens, dates, nHaplotypePairs_train, timeBoundDict, 
+                Ninit=Ninit, Tmax=Tmax, minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer,
+                step=step, alpha=alpha, beta=beta, FP=FP, R=R, POWER=POWER)
+        # compute the loglikelihood of the validation set
+        loglik, _= singlePop_MultiTP_given_vecNe_negLoglik(Ne, ibdHistogram_val, binMidpoint, chrlens, dates, 
+                                            nHaplotypePairs_val, Tmax, 0, 0, timeBoundDict,
+                                            s=s, e=e, FP=FP, R=R, POWER=POWER)
+        devstat = singlePop_MultiTP_given_vecNe_DevStat(Ne, ibdHistogram_val, binMidpoint, chrlens, dates,
+                                            nHaplotypePairs_val, Tmax, timeBoundDict,
+                                            s=s, e=e, FP=FP, R=R, POWER=POWER)
+        logliks.append(-loglik)
+        devstats.append(devstat)
+    return logliks, devstats
+
+def getLoglik_kfold_wrapper(args):
+    return getLoglik_kfold(*args)
 
 
-def hyperparam_kfold(df_ibd, id2SampleCluster, gaps, ch_len_dict, timeBoundDict, Ninit=500, Tmax=100, \
+def hyperparam_kfold(df_ibd, sampleCluster2id, dates, chr_lens, timeBoundDict, kfold=5, Ninit=500, Tmax=100, \
                     minL_calc=2.0, maxL_calc=22, minL_infer=6.0, maxL_infer=20.0,
-                    FP=None, R=None, POWER=None, step=0.1, beta=250, prefix="", outfolder="", history=False):
+                    FP=None, R=None, POWER=None, step=0.1, beta=250, prefix="", outfolder="", save=False,
+                    parallel=True, nprocess=10):
     alphas = np.logspace(np.log10(50), 7, 30)
-    loglik = np.zeros(len(alphas))
-    Nes = []
-    chs = np.arange(1, 23)
-    for i, alpha in enumerate(alphas):
-        Ne = bootstrap_single_run(chs, ibds_by_chr, gaps, nSamples, ch_len_dict, timeBoundDict, Ninit, Tmax, \
-                                  minL_infer=minL_infer, maxL_infer=maxL_infer, step=step, alpha=alpha, beta=beta,\
-                                    FP=FP, R=R, POWER=POWER)
+    logliks = np.zeros((len(alphas), kfold))
+    devstats = np.zeros((len(alphas), kfold))
+    df_ibd = df_ibd[df_ibd['lengthM'] >= minL_infer/100] # to speed-up dataframe subsetting
+    ibdHistogram_for_each_train_val_split = get_ibdHistogram_for_each_train_val_split(df_ibd, sampleCluster2id, kfold, minL_calc, maxL_calc, step)
+    if not parallel:
+        for i, alpha in tqdm(enumerate(alphas)):
+            logliks_on_val, devstats_on_val = getLoglik_kfold(ibdHistogram_for_each_train_val_split, dates, chr_lens, timeBoundDict, alpha, kfold, Ninit, Tmax, \
+                                  minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, step=step, 
+                                  beta=beta, FP=FP, R=R, POWER=POWER)
+            print(f'alpha={alpha:.3f}, avg_loglik_on_val={np.mean(logliks_on_val):.3f}, avg_devstat_on_val={np.mean(devstats_on_val):.3f}', flush=True)
+            logliks[i] = logliks_on_val
+            devstats[i] = devstats_on_val
+    else:
+        params = [[ibdHistogram_for_each_train_val_split, dates, chr_lens, timeBoundDict, alpha, kfold, Ninit, Tmax, 
+                        minL_calc, maxL_calc, minL_infer, maxL_infer, step, 
+                        beta, FP, R, POWER] for alpha in alphas]
+        with mp.Pool(processes = nprocess) as pool:
+            results = list(tqdm(pool.imap(getLoglik_kfold_wrapper, params), total=len(alphas)))
+        for i, (logliks_on_val, devstats_on_val) in enumerate(results):
+            print(f'alpha={alphas[i]:.3f}, avg_loglik_on_val={np.mean(logliks_on_val):.3f}, avg_devstat_on_val={np.mean(devstats_on_val):.3f}', flush=True)
+            logliks[i] = logliks_on_val
+            devstats[i] = devstats_on_val
+    if save:
+        cv_record = {'logliks':logliks, 'devstats':devstats, 'alphas':alphas}
+        if not os.path.exists(outfolder):
+            os.makedirs(outfolder)
+        pickle.dump(cv_record, open(os.path.join(outfolder, 
+                       '.'.join([s for s in [prefix, "cv.trace.pickle"] if s.strip()])), 'wb'))
+        
+    devstats_mean = np.mean(devstats, axis=1)
+    min_deviance_stat = np.min(devstats_mean)
+    opt_alpha_index = np.where(devstats_mean <= min_deviance_stat + 1.0)[0][-1]
+    print(f'opt alpha: {alphas[opt_alpha_index]:.3f}')
+    return alphas[opt_alpha_index]
+
+####################################### experiment with parallelism ##############################################
+# import concurrent.futures
+# import tqdm
+# from functools import partial
+
+# def parallel_worker(alpha, ibdHistogram_for_each_train_val_split, dates, chr_lens, timeBoundDict, kfold, Ninit, Tmax,
+#                     minL_calc, maxL_calc, minL_infer, maxL_infer, step, beta, FP, R, POWER):
+#     avg_loglik_on_val = getAvgLoglik_kfold(ibdHistogram_for_each_train_val_split, dates, chr_lens, timeBoundDict,
+#                                            alpha, kfold, Ninit, Tmax,
+#                                            minL_calc=minL_calc, maxL_calc=maxL_calc,
+#                                            minL_infer=minL_infer, maxL_infer=maxL_infer, step=step,
+#                                            beta=beta, FP=FP, R=R, POWER=POWER)
+#     #print(f'alpha={alpha:.3f}, avg_loglik_on_val={avg_loglik_on_val:.3f}', flush=True)
+#     return avg_loglik_on_val
+
+# def hyperparam_kfold_parallel(df_ibd, sampleCluster2id, dates, chr_lens, timeBoundDict, kfold=5, nthreads=6, Ninit=500, Tmax=100,
+#                                minL_calc=2.0, maxL_calc=22, minL_infer=6.0, maxL_infer=20.0,
+#                                FP=None, R=None, POWER=None, step=0.1, beta=250, prefix="", outfolder="", save=False):
+#     alphas = np.logspace(np.log10(50), 7, 30)
+#     df_ibd = df_ibd[df_ibd['lengthM'] >= minL_infer / 100]  # to speed-up dataframe subsetting
+#     ibdHistogram_for_each_train_val_split = get_ibdHistogram_for_each_train_val_split(df_ibd, sampleCluster2id,
+#                                                                                         kfold, minL_calc, maxL_calc,
+#                                                                                         step)
+#     print(f'start parallel hyperparameter search...', flush=True)
+#     current_start_method = mp.get_start_method()
+#     print(f"Current multiprocessing start method: {current_start_method}", flush=True)
+#     with concurrent.futures.ProcessPoolExecutor(max_workers=nthreads) as executor:
+#         partial_worker = partial(parallel_worker,
+#                                  ibdHistogram_for_each_train_val_split=ibdHistogram_for_each_train_val_split,
+#                                  dates=dates, chr_lens=chr_lens, timeBoundDict=timeBoundDict, kfold=kfold, Ninit=Ninit,
+#                                  Tmax=Tmax, minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer,
+#                                  maxL_infer=maxL_infer, step=step, beta=beta, FP=FP, R=R, POWER=POWER)
+
+#         results = list(executor.map(partial_worker, alphas), total=len(alphas))
+
+#     loglik = np.array(results)
+#     if save:
+#         cv_record = {alpha:loglik for alpha, loglik in zip(alphas, loglik)}
+#         pickle.dump(cv_record, open(os.path.join(outfolder, 
+#                        '.'.join([s for s in [prefix, "cv.trace.pickle"] if s.strip()])), 'wb'))
+#     # pick the alpha with the highest loglikelihood
+#     opt_alpha_index = np.argmax(loglik)
+#     opt_alpha = alphas[opt_alpha_index]
+#     print(f'opt alpha: {opt_alpha:.3f}')
+#     return alphas, loglik, opt_alpha

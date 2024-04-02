@@ -3,7 +3,7 @@
 import numpy as np
 import math
 import pickle
-from analytic_multi import ch_len_dict
+from analytic_multi import ch_len_dict_default
 
 def FP(l, L, Ne):
     """
@@ -79,7 +79,7 @@ def alterIBD_multiTP(path2groundtruth, nSamples, POWER=None, FP=None, Ne=2500, l
                         ibds_error[samplePair][ch].append(ibd + np.random.normal(loc=loc, scale=scale))
             ## add FP segments
             if not FP is None:
-                fp_mu = npairs*4*(binStep/100)*FP(binMidpoint/100, ch_len_dict[ch]/100, Ne)
+                fp_mu = npairs*4*(binStep/100)*FP(binMidpoint/100, ch_len_dict_default[ch]/100, Ne)
                 # draw Poisson random var from fp_mu
                 nfp = np.random.poisson(fp_mu)
                 for i, n in enumerate(nfp):

@@ -6,6 +6,8 @@ import itertools
 import time
 import random
 from collections import Counter
+from tqdm import tqdm
+import pandas as pd
 
 def readHapMap(path2Map):
     # assume the first row is header, so we ignore it
@@ -71,7 +73,7 @@ def multi_run(fun, prms, processes = 4, output=False):
     if len(prms)>1:
         if output:
             print("Starting Pool of multiple workers...")    
-        with mp.Pool(processes = processes) as pool:
+        with mp.Pool(processes = processes) as pool, tqdm(total=len(prms)) as pbar:
             results = pool.starmap(fun, prms)
     elif len(prms)==1:
         if output:
@@ -269,9 +271,39 @@ def timeSampling_singlePop_2tp_cohort_ind(gap, Ne, nSample=3, chr=range(1,23), m
     return aggregated
 
 ################################ multi time points, recording IBD segments between all pairwise sampling cluster #####################
+nSNPs = {1:88409, 2:93876, 3:77346, 4:68519, 5:69064, 6:75348, 7:59604, 8:60829, 9:50547, \
+         10:58611, 11:54591, 12:53738, 13:38928, 14:35886, 15:34281, 16:34336, 17:28893, 18:33847, \
+            19:18093, 20:28941, 21:15708, 22:15484}
+
+
+def write2vcf(path2ts, ch=1, mutation_rate=1.28e-8, random_seed=1, outFolder='./'):
+    ts = tskit.load(path2ts)
+    mts = msprime.sim_mutations(ts, rate=mutation_rate, random_seed=random_seed)
+    afs_file = f'/mnt/archgen/users/yilei/bin/ancIBD_data/afs/v51.1_1240k_AF_ch{ch}.tsv'
+    df_afs = pd.read_csv(afs_file, sep='\s+')
+    afs_hist, _ = np.histogram(df_afs['af'], bins=np.arange(0, 1.01, 0.01), density=True)
+    afs_prop = afs_hist*0.01
+    nSamples = mts.num_samples
+    site_afs = np.zeros(mts.num_sites)
+    for variant in mts.variants():
+        site_afs[variant.site.id] = np.sum(variant.genotypes)/(nSamples)
+    site2keep = np.full(mts.num_sites, False)
+    for i, prop in enumerate(afs_prop):
+        nsite = int(prop*nSNPs[ch])
+        if nsite > 0:
+            site2keep[np.random.choice(np.where(np.logical_and(site_afs>=i*0.01, site_afs<(i+1)*0.01))[0], size=nsite, replace=False)] = True
+    sitemask = np.logical_not(site2keep)
+    if os.path.isfile(os.path.join(outFolder, f"chr{ch}.vcf.gz")):
+        os.remove(os.path.join(outFolder, f"chr{ch}.vcf.gz"))
+    mts.write_vcf(open(os.path.join(outFolder, f"chr{ch}.vcf"), 'w'), site_mask=sitemask, contig_id=ch)
+    mts.write_vcf(open(f"ch{ch}.vcf", 'w'), contig_id=ch)
+    os.system(f'bgzip ch{ch}.vcf')
+    os.system(f'bcftools index ch{ch}.vcf.gz')
+
+
 
 def timeSampling_singlePop_MultiTP_cohort_chrom(Ne=1e3, nSamples=[], gaps=[], chr=20, minLen=4.0, record_full_arg=True, demography=None, \
-            random_seed=1, endTime=1e3, nSamples_model=[], timeInterval=False, population=None):
+            random_seed=1, endTime=1e3, nSamples_model=[], timeInterval=False, population=None, outfolder='./'):
     # Ne: this parameter is ignored if a demography object is given
     path2Map = f"/mnt/archgen/users/yilei/Data/Hapmap/genetic_map_GRCh37_chr{chr}.txt"
     recombMap = msprime.RateMap.read_hapmap(path2Map)
@@ -296,54 +328,55 @@ def timeSampling_singlePop_MultiTP_cohort_chrom(Ne=1e3, nSamples=[], gaps=[], ch
             record_provenance=False, record_full_arg=record_full_arg, end_time=endTime, \
             model=[msprime.DiscreteTimeWrightFisher(duration=500), msprime.StandardCoalescent(),], random_seed=random_seed)
     print(f'simulating tree seq done for ch{chr}, takes {round(time.time() - t1)}s')
+    ts.dump(os.path.join(outfolder, f'ch{chr}.ts'))
     # extract IBD segments
-    t1 = time.time()
-    results = defaultdict(list) # a hack to make defaultdict picklable
+    # t1 = time.time()
+    # results = defaultdict(list) # a hack to make defaultdict picklable
 
-    ############### use tskit's internal IBD extractor, which should be much faster #########################
-    bkp_bp = ts.breakpoints(as_array=True)
-    bkp_cm = np.array([bp2Morgan(bp, bps, cMs) for bp in bkp_bp])
+    # ############### use tskit's internal IBD extractor, which should be much faster #########################
+    # bkp_bp = ts.breakpoints(as_array=True)
+    # bkp_cm = np.array([bp2Morgan(bp, bps, cMs) for bp in bkp_bp])
 
-    nSamples_copy = nSamples if not timeInterval else nSamples_model
-    if len(nSamples_copy) == 1:
-        ret, results4IBDNe = ibd_segments_fast(ts, bkp_bp, bkp_cm, within=list(range(0, 2*nSamples_copy[0])), max_time=endTime, minLen=minLen)
-        results[(0,0)].extend(ret)
-        return results, results4IBDNe, chr
-    else:
-        for i in range(len(nSamples_copy)):
-            start_i = 0 if i == 0 else 2*sum(nSamples_copy[:i])
-            end_i = 2*sum(nSamples_copy[:i+1])
-            for j in range(i, len(nSamples_copy)):
-                start_j = 0 if j == 0 else 2*sum(nSamples_copy[:j])
-                end_j = 2*sum(nSamples_copy[:j+1])
-                if i == j:
-                    ret, _ = ibd_segments_fast(ts, bkp_bp, bkp_cm, within=list(range(start_i, end_i)), max_time=endTime, minLen=minLen)
-                    results[(i,j)].extend(ret)
-                else:
-                    results[(i,j)].extend(ibd_segments_fast(ts, bkp_bp, bkp_cm, \
-                        between=[list(range(start_i, end_i)), list(range(start_j, end_j))], \
-                            max_time=endTime, minLen=minLen))
-        print(f'extracting IBD done for ch{chr}, takes {round(time.time() - t1)}s')
-        return results, chr
+    # nSamples_copy = nSamples if not timeInterval else nSamples_model
+    # if len(nSamples_copy) == 1:
+    #     ret, results4IBDNe = ibd_segments_fast(ts, bkp_bp, bkp_cm, within=list(range(0, 2*nSamples_copy[0])), max_time=endTime, minLen=minLen)
+    #     results[(0,0)].extend(ret)
+    #     return results, results4IBDNe, chr
+    # else:
+    #     for i in range(len(nSamples_copy)):
+    #         start_i = 0 if i == 0 else 2*sum(nSamples_copy[:i])
+    #         end_i = 2*sum(nSamples_copy[:i+1])
+    #         for j in range(i, len(nSamples_copy)):
+    #             start_j = 0 if j == 0 else 2*sum(nSamples_copy[:j])
+    #             end_j = 2*sum(nSamples_copy[:j+1])
+    #             if i == j:
+    #                 ret, _ = ibd_segments_fast(ts, bkp_bp, bkp_cm, within=list(range(start_i, end_i)), max_time=endTime, minLen=minLen)
+    #                 results[(i,j)].extend(ret)
+    #             else:
+    #                 results[(i,j)].extend(ibd_segments_fast(ts, bkp_bp, bkp_cm, \
+    #                     between=[list(range(start_i, end_i)), list(range(start_j, end_j))], \
+    #                         max_time=endTime, minLen=minLen))
+    #     print(f'extracting IBD done for ch{chr}, takes {round(time.time() - t1)}s')
+    #     return results, chr
 
 
-    ibd_extractor = ibd_segments_fullARG_cohort if record_full_arg else ibd_segments_cohort
-    for i in range(len(nSamples)):
-        start_i = 0 if i == 0 else 2*sum(nSamples[:i])
-        end_i = 2*sum(nSamples[:i+1])
-        for j in range(i, len(nSamples)):
-            start_j = 0 if j == 0 else 2*sum(nSamples[:j])
-            end_j = 2*sum(nSamples[:j+1])
-            for id1, id2 in itertools.product(range(start_i, end_i), range(start_j, end_j)):
-                if i == j and id2 <= 1 + id1: # don't count ROH and don't double count when recording IBD within the same sampling cluster
-                    continue
-                results[(i, j)].extend(ibd_extractor(ts, id1, id2, bps, cMs, maxGen=endTime, minLen=minLen))
-    print(f'extracting IBD done for ch{chr}, takes {round(time.time() - t1)}s')
-    return results, chr
+    # ibd_extractor = ibd_segments_fullARG_cohort if record_full_arg else ibd_segments_cohort
+    # for i in range(len(nSamples)):
+    #     start_i = 0 if i == 0 else 2*sum(nSamples[:i])
+    #     end_i = 2*sum(nSamples[:i+1])
+    #     for j in range(i, len(nSamples)):
+    #         start_j = 0 if j == 0 else 2*sum(nSamples[:j])
+    #         end_j = 2*sum(nSamples[:j+1])
+    #         for id1, id2 in itertools.product(range(start_i, end_i), range(start_j, end_j)):
+    #             if i == j and id2 <= 1 + id1: # don't count ROH and don't double count when recording IBD within the same sampling cluster
+    #                 continue
+    #             results[(i, j)].extend(ibd_extractor(ts, id1, id2, bps, cMs, maxGen=endTime, minLen=minLen))
+    # print(f'extracting IBD done for ch{chr}, takes {round(time.time() - t1)}s')
+    # return results, chr
 
 def timeSampling_singlePop_MultiTP_cohort_ind(Ne=1e3, nSamples=[], gaps=[], chr=range(1,23), minLen=4.0, record_full_arg=True, \
-        demography=None, random_seed=1, endTime=1e3, nprocess=6, nSamples_model=[], timeInterval=False, population=None):
-    prms = [[Ne, nSamples, gaps, chr_, minLen, record_full_arg, demography, random_seed, endTime, nSamples_model, timeInterval, population] for chr_ in chr]
+        demography=None, random_seed=1, endTime=1e3, nprocess=6, nSamples_model=[], timeInterval=False, population=None, outfolder='./'):
+    prms = [[Ne, nSamples, gaps, chr_, minLen, record_full_arg, demography, random_seed, endTime, nSamples_model, timeInterval, population, outfolder] for chr_ in chr]
     results = multi_run(timeSampling_singlePop_MultiTP_cohort_chrom, prms, processes=nprocess, output=False)
     aggregated = defaultdict(dict)
     numSampleCluster = len(nSamples) if not timeInterval else len(nSamples_model)
@@ -486,9 +519,6 @@ def simulateOneChrom(demo, ch, nSamples, outFolder, r=1):
     mts.write_vcf(open(os.path.join(outFolder, f"vcf/chr{ch}.vcf"), 'w'), site_mask=np.logical_not(site2keep), contig_id=ch)
     os.system('bgzip ' + os.path.join(outFolder, f"vcf/chr{ch}.vcf"))
     print(f"chr{ch} done, takes {round(time.time()-t1, 3)} seconds.", flush=True)
-
-
-
 
 
 

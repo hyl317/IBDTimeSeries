@@ -25,8 +25,8 @@ for i in range(1, len(chrom_positions)-1):
     map_positions_uniform.append(chrom_positions[i+1])
 
 rates = [r_chrom, r_break] * (len(chrom_lengths) - 1) + [r_chrom]
-print(f'length of map_positions: {len(map_positions_uniform)}')
-print(f'length of rates: {len(rates)}')
+# print(f'length of map_positions: {len(map_positions_uniform)}')
+# print(f'length of rates: {len(rates)}')
 rate_map = msprime.RateMap(position=map_positions_uniform, rate=rates)
 
 ###################################### construct a variable recombination rate map (use Amy's simplified recomb map from Hapmap) ######################################
@@ -156,7 +156,7 @@ def ibd_segments(ts, bp2chAndCM, within=None, between=None, max_time=2500, minLe
 
 
 def simulate_wholeGenome(demography, nSamples=[], gaps=[], minLen=4.0, record_full_arg=False, \
-            random_seed=1, endTime=2.5e3, nSamples_model=[], timeInterval=False, population=None, tsSavePath=None, uniform_map=True):
+            random_seed=1, endTime=None, nSamples_model=[], timeInterval=False, population=None, tsSavePath=None, uniform_map=True):
     assert(len(gaps)==len(nSamples))
     if population is None:
         samples = [msprime.SampleSet(nSample, time=gap) for nSample, gap in zip(nSamples, gaps)]

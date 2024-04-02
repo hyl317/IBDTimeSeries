@@ -3,7 +3,7 @@ import sys
 import pickle
 import os
 import numpy as np
-from tweakIBD_helper import FP, POWER, alterIBD_multiTP, power, power2
+from ibdDemo.simulation.tweakIBD_helper import FP, POWER, alterIBD_multiTP, power, power2
 
 ch_len_dict = {1:286.279, 2:268.840, 3:223.361, 4:214.688, 5:204.089, 6:192.040, 7:187.221, 8:168.003, 9:166.359, \
         10:181.144, 11:158.219, 12:174.679, 13:125.706, 14:120.203, 15:141.860, 16:134.038, 17:128.491, 18:117.709, \

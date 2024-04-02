@@ -1,0 +1,4 @@
+This folder contains code used for simulation with msprime.
+ts_utility.py simulates genealogy and extracts IBD independently for each chromosome.
+ts_utility_wholeGenome.py simulates genealogy and extracts IBD by stitching 22 autosomes together with recombination rate set to log2 between adjacent chromosomes.
+tweakIBD.py manipulates groundtruth IBD to simulate IBD detection errors.

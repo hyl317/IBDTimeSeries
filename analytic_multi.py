@@ -9,7 +9,7 @@ from analytic import singlePop_2tp_given_Ne_negLoglik, \
     singlePop_2tp_given_vecNe_negLoglik_noPenalty,\
     singlePop_2tp_given_vecNe_DevStat_noPenalty
 from inference_utility import get_ibdHistogram_by_sampleCluster
-from ts_utility import multi_run
+from ibdDemo.simulation.ts_utility import multi_run
 from plot import plot_pairwise_fitting, plot_pairwise_TMRCA, plot2PopIMfit
 import matplotlib.pyplot as plt
 import pickle

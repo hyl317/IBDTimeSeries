@@ -350,9 +350,9 @@ def inferVecNe_singlePop_MultiTP(df_ibd, sampleCluster2id, dates, ch_len_dict=No
 
 
 def inferVecNe_singlePop_MultiTP_withMask(path2IBD, path2SampleAge, path2ChrDelimiter, path2mask=None, \
-        Ninit=500, Tmax=100, minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0, step=0.1, alpha=2500, beta=0, method='l2', \
+        Ninit=500, Tmax=100, minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0, step=0.25, alpha=2500, beta=250, method='l2', \
         FP=None, R=None, POWER=None, generation_time=29, minSample=10, maxSample=np.inf, merge_level=5, \
-        prefix="", doBootstrap=True, autoHyperParam=True, outFolder='.', run=True, plot=True, parallel=True, nprocess=10):
+        prefix="", doBootstrap=True, autoHyperParam=True, outFolder='.', dryrun=True, plot=True, parallel=True, nprocess=10):
     ###### read in a list of samples with their mean BP. 
     sampleAgeDict = {}
     youngest_age = np.inf
@@ -378,7 +378,7 @@ def inferVecNe_singlePop_MultiTP_withMask(path2IBD, path2SampleAge, path2ChrDeli
             exSampleCluster.add(i)
         else:
             sampleCluster2id[i] = [k for k, v in sampleAgeBinDict.items() if v == i]
-        print(f'{nSamples[i]} samples in age bin {i}({youngest_age + i*merge_level*generation_time} - {youngest_age + (i+1)*merge_level*generation_time}BP): {[k for k, v in sampleAgeBinDict.items() if v == i]}')
+        print(f'{nSamples[i]} samples in age bin {i}({youngest_age + i*merge_level*generation_time} - {youngest_age + (i+1)*merge_level*generation_time}BP): \n{[k for k, v in sampleAgeBinDict.items() if v == i]}')
     
     for i in exSampleCluster:
         del nSamples[i]
@@ -463,10 +463,10 @@ def inferVecNe_singlePop_MultiTP_withMask(path2IBD, path2SampleAge, path2ChrDeli
         print(f'no mask file provided, all segments will be used for inference')
         ch_len_dict = {k:v[1]-v[0] for k, v in chrDelimiter.items()}
         df_ibd = pd.read_csv(path2IBD, sep='\t')
-        print(f'######## {np.min(df_ibd["lengthM"].values)}')
+        #print(f'######## {np.min(df_ibd["lengthM"].values)}')
 
     ### end of preprocessing of input data, ready to start the inference
-    if run:
+    if not dryrun:
         return inferVecNe_singlePop_MultiTP(df_ibd, sampleCluster2id, dates, ch_len_dict, Ninit=Ninit, Tmax=Tmax, \
                 minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, step=step, alpha=alpha, beta=beta, \
                 method=method, FP=FP, R=R, POWER=POWER, plot=plot, 
@@ -704,48 +704,3 @@ def hyperparam_kfold(df_ibd, sampleCluster2id, dates, chr_lens, timeBoundDict, k
     print(f'opt alpha: {alphas[opt_alpha_index]:.3f}')
     return alphas[opt_alpha_index]
 
-####################################### experiment with parallelism ##############################################
-# import concurrent.futures
-# import tqdm
-# from functools import partial
-
-# def parallel_worker(alpha, ibdHistogram_for_each_train_val_split, dates, chr_lens, timeBoundDict, kfold, Ninit, Tmax,
-#                     minL_calc, maxL_calc, minL_infer, maxL_infer, step, beta, FP, R, POWER):
-#     avg_loglik_on_val = getAvgLoglik_kfold(ibdHistogram_for_each_train_val_split, dates, chr_lens, timeBoundDict,
-#                                            alpha, kfold, Ninit, Tmax,
-#                                            minL_calc=minL_calc, maxL_calc=maxL_calc,
-#                                            minL_infer=minL_infer, maxL_infer=maxL_infer, step=step,
-#                                            beta=beta, FP=FP, R=R, POWER=POWER)
-#     #print(f'alpha={alpha:.3f}, avg_loglik_on_val={avg_loglik_on_val:.3f}', flush=True)
-#     return avg_loglik_on_val
-
-# def hyperparam_kfold_parallel(df_ibd, sampleCluster2id, dates, chr_lens, timeBoundDict, kfold=5, nthreads=6, Ninit=500, Tmax=100,
-#                                minL_calc=2.0, maxL_calc=22, minL_infer=6.0, maxL_infer=20.0,
-#                                FP=None, R=None, POWER=None, step=0.1, beta=250, prefix="", outfolder="", save=False):
-#     alphas = np.logspace(np.log10(50), 7, 30)
-#     df_ibd = df_ibd[df_ibd['lengthM'] >= minL_infer / 100]  # to speed-up dataframe subsetting
-#     ibdHistogram_for_each_train_val_split = get_ibdHistogram_for_each_train_val_split(df_ibd, sampleCluster2id,
-#                                                                                         kfold, minL_calc, maxL_calc,
-#                                                                                         step)
-#     print(f'start parallel hyperparameter search...', flush=True)
-#     current_start_method = mp.get_start_method()
-#     print(f"Current multiprocessing start method: {current_start_method}", flush=True)
-#     with concurrent.futures.ProcessPoolExecutor(max_workers=nthreads) as executor:
-#         partial_worker = partial(parallel_worker,
-#                                  ibdHistogram_for_each_train_val_split=ibdHistogram_for_each_train_val_split,
-#                                  dates=dates, chr_lens=chr_lens, timeBoundDict=timeBoundDict, kfold=kfold, Ninit=Ninit,
-#                                  Tmax=Tmax, minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer,
-#                                  maxL_infer=maxL_infer, step=step, beta=beta, FP=FP, R=R, POWER=POWER)
-
-#         results = list(executor.map(partial_worker, alphas), total=len(alphas))
-
-#     loglik = np.array(results)
-#     if save:
-#         cv_record = {alpha:loglik for alpha, loglik in zip(alphas, loglik)}
-#         pickle.dump(cv_record, open(os.path.join(outfolder, 
-#                        '.'.join([s for s in [prefix, "cv.trace.pickle"] if s.strip()])), 'wb'))
-#     # pick the alpha with the highest loglikelihood
-#     opt_alpha_index = np.argmax(loglik)
-#     opt_alpha = alphas[opt_alpha_index]
-#     print(f'opt alpha: {opt_alpha:.3f}')
-#     return alphas, loglik, opt_alpha

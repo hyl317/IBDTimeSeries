@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "TTNe"
+version = "0.0.1a"
+authors = [
+  { name="Yilei Huang", email="yilei_huang@eva.mpg.de" },
+    {name = "Harald Ringbauer", email = "harald_ringbauer@eva.mpg.de"},
+]
+description = "A python package for inference recent population size trajectories using time-series IBD data"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+  "numpy", "pandas", "scipy", 
+  "matplotlib", "numba", "tqdm"
+]
+keywords = ["population genetics", "ancient DNA", "demographic inference", "statistical genetics"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.scripts]
+TTNe = "package.TTNe.run:main"
+
+[project.urls]
+Homepage = "https://github.com/hyl317/IBDTimeSeries"

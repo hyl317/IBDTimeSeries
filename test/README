@@ -1,1 +1,1 @@
-In this directory you can find input files to have a test run of TTNe. The input data is from a msprime simulation of a bottleneck demography. It has three sampling points, with 30 samples from each time point.
+In this directory you can find input files to have a test run of TTNe. The input data is from a msprime simulation of a bottleneck demography. It has three sampling points, with 60 samples from each time point.

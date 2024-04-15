@@ -1,0 +1,65 @@
+60 samples in age bin 0(0 - 145BP): 
+['id0', 'id1', 'id2', 'id3', 'id4', 'id5', 'id6', 'id7', 'id8', 'id9', 'id10', 'id11', 'id12', 'id13', 'id14', 'id15', 'id16', 'id17', 'id18', 'id19', 'id20', 'id21', 'id22', 'id23', 'id24', 'id25', 'id26', 'id27', 'id28', 'id29', 'id30', 'id31', 'id32', 'id33', 'id34', 'id35', 'id36', 'id37', 'id38', 'id39', 'id40', 'id41', 'id42', 'id43', 'id44', 'id45', 'id46', 'id47', 'id48', 'id49', 'id50', 'id51', 'id52', 'id53', 'id54', 'id55', 'id56', 'id57', 'id58', 'id59']
+0 samples in age bin 1(145 - 290BP): 
+[]
+0 samples in age bin 2(290 - 435BP): 
+[]
+0 samples in age bin 3(435 - 580BP): 
+[]
+60 samples in age bin 4(580 - 725BP): 
+['id60', 'id61', 'id62', 'id63', 'id64', 'id65', 'id66', 'id67', 'id68', 'id69', 'id70', 'id71', 'id72', 'id73', 'id74', 'id75', 'id76', 'id77', 'id78', 'id79', 'id80', 'id81', 'id82', 'id83', 'id84', 'id85', 'id86', 'id87', 'id88', 'id89', 'id90', 'id91', 'id92', 'id93', 'id94', 'id95', 'id96', 'id97', 'id98', 'id99', 'id100', 'id101', 'id102', 'id103', 'id104', 'id105', 'id106', 'id107', 'id108', 'id109', 'id110', 'id111', 'id112', 'id113', 'id114', 'id115', 'id116', 'id117', 'id118', 'id119']
+Bins [0, 4] will be used for inference.
+{0: ['id0', 'id1', 'id2', 'id3', 'id4', 'id5', 'id6', 'id7', 'id8', 'id9', 'id10', 'id11', 'id12', 'id13', 'id14', 'id15', 'id16', 'id17', 'id18', 'id19', 'id20', 'id21', 'id22', 'id23', 'id24', 'id25', 'id26', 'id27', 'id28', 'id29', 'id30', 'id31', 'id32', 'id33', 'id34', 'id35', 'id36', 'id37', 'id38', 'id39', 'id40', 'id41', 'id42', 'id43', 'id44', 'id45', 'id46', 'id47', 'id48', 'id49', 'id50', 'id51', 'id52', 'id53', 'id54', 'id55', 'id56', 'id57', 'id58', 'id59'], 4: ['id60', 'id61', 'id62', 'id63', 'id64', 'id65', 'id66', 'id67', 'id68', 'id69', 'id70', 'id71', 'id72', 'id73', 'id74', 'id75', 'id76', 'id77', 'id78', 'id79', 'id80', 'id81', 'id82', 'id83', 'id84', 'id85', 'id86', 'id87', 'id88', 'id89', 'id90', 'id91', 'id92', 'id93', 'id94', 'id95', 'id96', 'id97', 'id98', 'id99', 'id100', 'id101', 'id102', 'id103', 'id104', 'id105', 'id106', 'id107', 'id108', 'id109', 'id110', 'id111', 'id112', 'id113', 'id114', 'id115', 'id116', 'id117', 'id118', 'id119']}
+no mask file provided, all segments will be used for inference
+min IBD length: 0.0800005808041817
+number of haplotype pairs: {(0, 0): 7080.0, (0, 4): 14400, (4, 4): 7080.0}
+time spent on subsetting dataframe: 30.963s
+alpha=50.000, avg_loglik_on_val=157.313, avg_devstat_on_val=147.416
+alpha=76.167, avg_loglik_on_val=157.294, avg_devstat_on_val=147.455
+alpha=116.027, avg_loglik_on_val=157.268, avg_devstat_on_val=147.507
+alpha=176.747, avg_loglik_on_val=157.190, avg_devstat_on_val=147.663
+alpha=269.244, avg_loglik_on_val=157.131, avg_devstat_on_val=147.780
+alpha=410.148, avg_loglik_on_val=157.049, avg_devstat_on_val=147.944
+alpha=624.791, avg_loglik_on_val=156.965, avg_devstat_on_val=148.113
+alpha=951.763, avg_loglik_on_val=156.765, avg_devstat_on_val=148.512
+alpha=1449.850, avg_loglik_on_val=156.619, avg_devstat_on_val=148.805
+alpha=2208.601, avg_loglik_on_val=156.348, avg_devstat_on_val=149.346
+alpha=3364.429, avg_loglik_on_val=156.018, avg_devstat_on_val=150.007
+alpha=5125.137, avg_loglik_on_val=155.526, avg_devstat_on_val=150.991
+alpha=7807.278, avg_loglik_on_val=154.925, avg_devstat_on_val=152.192
+alpha=11893.065, avg_loglik_on_val=154.182, avg_devstat_on_val=153.678
+alpha=18117.069, avg_loglik_on_val=153.496, avg_devstat_on_val=155.050
+alpha=27598.283, avg_loglik_on_val=152.637, avg_devstat_on_val=156.768
+alpha=42041.307, avg_loglik_on_val=151.930, avg_devstat_on_val=158.182
+alpha=64042.805, avg_loglik_on_val=151.245, avg_devstat_on_val=159.553
+alpha=97558.359, avg_loglik_on_val=150.583, avg_devstat_on_val=160.876
+alpha=148613.623, avg_loglik_on_val=149.932, avg_devstat_on_val=162.179
+alpha=226387.665, avg_loglik_on_val=149.260, avg_devstat_on_val=163.523
+alpha=344863.235, avg_loglik_on_val=148.634, avg_devstat_on_val=164.775
+alpha=525340.684, avg_loglik_on_val=148.127, avg_devstat_on_val=165.789
+alpha=800267.488, avg_loglik_on_val=147.383, avg_devstat_on_val=167.276
+alpha=1219071.873, avg_loglik_on_val=146.613, avg_devstat_on_val=168.816
+alpha=1857049.367, avg_loglik_on_val=145.945, avg_devstat_on_val=170.152
+alpha=2828899.941, avg_loglik_on_val=144.209, avg_devstat_on_val=173.624
+alpha=4309349.564, avg_loglik_on_val=142.971, avg_devstat_on_val=176.100
+alpha=6564563.629, avg_loglik_on_val=142.188, avg_devstat_on_val=177.667
+alpha=10000000.000, avg_loglik_on_val=140.598, avg_devstat_on_val=180.846
+opt alpha: 624.791
+hyperparameter search takes 1572.220s
+estimated constant Ne: 13975.012933919703
+constNe for 0 is 21816.22419380268
+constNe for 4 is 13668.99519065248
+  message: CONVERGENCE: REL_REDUCTION_OF_F_<=_FACTR*EPSMCH
+  success: True
+   status: 0
+      fun: -3795.1904897928957
+        x: [ 1.062e+05  9.516e+04 ...  1.854e+04  1.854e+04]
+      nit: 959
+      jac: [-2.389e-07 -5.030e-06 ... -1.187e-06 -5.042e-06]
+     nfev: 1004
+     njev: 1004
+ hess_inv: <120x120 LbfgsInvHessProduct with dtype=float64>
+elapsed time for optimization: 3.757s
+minL for plotting: 8
+sequential bootstrap takes 842.826s
+2424.9u 6.9s 40:32.49 99.9% 0+0k 351640+1520io 1020pf+0w

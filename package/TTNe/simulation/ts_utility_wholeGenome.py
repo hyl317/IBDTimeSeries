@@ -2,7 +2,7 @@ import msprime
 import numpy as np
 import time
 from collections import defaultdict
-from ibdDemo.simulation.ts_utility import sort_merge
+from TTNe.simulation.ts_utility import sort_merge
 import os
 import sys
 import tskit

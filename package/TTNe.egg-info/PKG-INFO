@@ -1,0 +1,19 @@
+Metadata-Version: 2.1
+Name: TTNe
+Version: 0.0.1a0
+Summary: A python package for inference recent population size trajectories using time-series IBD data
+Author-email: Yilei Huang <yilei_huang@eva.mpg.de>, Harald Ringbauer <harald_ringbauer@eva.mpg.de>
+Project-URL: Homepage, https://github.com/hyl317/IBDTimeSeries
+Keywords: population genetics,ancient DNA,demographic inference,statistical genetics
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy
+Requires-Dist: pandas
+Requires-Dist: scipy
+Requires-Dist: matplotlib
+Requires-Dist: numba
+Requires-Dist: tqdm

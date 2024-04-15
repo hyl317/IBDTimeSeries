@@ -5,12 +5,11 @@ from collections import defaultdict
 from scipy.optimize import minimize
 from scipy.ndimage import shift
 from scipy.stats import norm
-from analytic import singlePop_2tp_given_Ne_negLoglik, \
+from TTNe.analytic import singlePop_2tp_given_Ne_negLoglik, \
     singlePop_2tp_given_vecNe_negLoglik_noPenalty,\
     singlePop_2tp_given_vecNe_DevStat_noPenalty
-from inference_utility import get_ibdHistogram_by_sampleCluster
-from ibdDemo.simulation.ts_utility import multi_run
-from plot import plot_pairwise_fitting, plot_pairwise_TMRCA, plot2PopIMfit
+from TTNe.inference_utility import get_ibdHistogram_by_sampleCluster
+from TTNe.plot import plot_pairwise_fitting, plot_pairwise_TMRCA, plot2PopIMfit
 import matplotlib.pyplot as plt
 import pickle
 import warnings
@@ -343,7 +342,7 @@ def inferVecNe_singlePop_MultiTP(df_ibd, sampleCluster2id, dates, ch_len_dict=No
         df['lowCI'] = bootstrap_results_sorted[int(0.025*nresample)]
         df['upCI'] = bootstrap_results_sorted[int(0.975*nresample)]
     else:
-        df = pd.DataFrame(columns=['Generatioins', 'Ne'])
+        df = pd.DataFrame(columns=['Generations', 'Ne'])
         df['Generations'] = np.arange(1, len(Ne)+1)
         df['Ne'] = Ne
     return df

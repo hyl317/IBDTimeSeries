@@ -2,7 +2,7 @@ import argparse
 import os
 import pickle
 import numpy as np
-from analytic_multi import inferVecNe_singlePop_MultiTP_withMask
+from TTNe.analytic_multi import inferVecNe_singlePop_MultiTP_withMask
 
 def main():
     parser = argparse.ArgumentParser(description='Convert bam file to hdf5 format that stores readcount info at target sites.')
@@ -98,8 +98,11 @@ def main():
             POWER_func = pickle.load(f)
             POWER = POWER_func(binmidpoint)
 
-    inferVecNe_singlePop_MultiTP_withMask(args.path2IBD, args.path2SampleAge, args.chrdelim, path2mask=args.path2mask,
+    df = inferVecNe_singlePop_MultiTP_withMask(args.path2IBD, args.path2SampleAge, args.chrdelim, path2mask=args.path2mask,
         Tmax=args.Tmax, alpha=args.alpha, beta=250, method='l2', 
         minL_calc=args.minl_calc, maxL_calc=args.maxl_calc, minL_infer=args.minl_infer, maxL_infer=args.maxl_infer, step=0.25,
         FP=FP, R=R, POWER=POWER, generation_time=args.generation_time, minSample=args.minN, merge_level=args.merge, 
         prefix="", doBootstrap=args.boot, autoHyperParam=args.autocv, outFolder=args.out, dryrun=args.dryrun, parallel=args.np>1, nprocess=args.np)
+    if not args.dryrun:
+        filename = args.prefix + '.Ne.csv' if len(args.prefix) > 0 else 'Ne.csv'
+        df.to_csv(os.path.join(args.out, filename), index=False)

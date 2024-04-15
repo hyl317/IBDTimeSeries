@@ -7,8 +7,8 @@ import itertools
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.special import logsumexp
-from analytic import singlePop_2tp_given_vecNe, singlePop_2tp_given_vecNe_withError, computePosteriorTMRCA, twoPopIM_given_coalRate, twoPopIM_given_coalRate_withError
-from inference_utility import get_ibdHistogram_by_sampleCluster
+from TTNe.analytic import singlePop_2tp_given_vecNe, singlePop_2tp_given_vecNe_withError, computePosteriorTMRCA, twoPopIM_given_coalRate, twoPopIM_given_coalRate_withError
+from TTNe.inference_utility import get_ibdHistogram_by_sampleCluster
 
 
 def plot_pairwise_fitting(df_ibd, sampleCluster2id, dates, nHaplotypePairs, ch_len_dict, estNe, outFolder, timeBoundDict, prefix="pairwise", \

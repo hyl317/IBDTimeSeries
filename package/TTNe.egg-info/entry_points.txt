@@ -1,0 +1,2 @@
+[console_scripts]
+TTNe = TTNe.run:main

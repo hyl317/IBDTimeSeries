@@ -24,7 +24,7 @@ classifiers = [
 ]
 
 [project.scripts]
-TTNe = "package.TTNe.run:main"
+TTNe = "TTNe.run:main"
 
 [project.urls]
 Homepage = "https://github.com/hyl317/IBDTimeSeries"

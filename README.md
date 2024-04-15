@@ -1,10 +1,13 @@
 # TTNe (Time Transect Ne Estimation)
+
     TTNe is a method for estimating recent effective population size (_Ne_) using samples belonging to the same population but dated to different time periods. It is mainly desgiend for ancient DNA data where time transect sampling is becoming more common in some of the densely studied regions. It takes as input the detected IBD segments (obtained from, for example, [ancIBD](https://www.nature.com/articles/s41588-023-01582-w)) among the samples and then infers a Ne trajectory consistent with the observed IBD patterns using a maximum likelihood approach.
 
 ## Installation
+
     todo
 
 ## Basic Usage
+
     To use TTNe, you need to first call IBD segments for your data. You can first use GLIMPSE (or other low-coverage imputation tools if you prefer) to impute your aDNA data and then use ancIBD (or other IBD callers if you prefer) to obtain IBD segments. We have prepared a small test dataset to demonstrate the basic usage of TTNe. The test dataset is in the folder ./test/input.
 
     The test dataset was a bottleneck demography simulated by [msprime](https://tskit.dev/msprime/docs/stable/intro.html). It consists of a total of 120 samples taken at 2 time points (t=0 and t=20 generations backward in time). The bottleneck event happens at 30^th generations backward in time. 
@@ -29,6 +32,7 @@
     This takes about 40min when using a single process. You can set --np to use multiple processes to speed up. You can view all the available command line options by typing `TTNe -h`.
 
 ## Specifying Error Model
+
     todo
 
 

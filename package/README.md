@@ -1,0 +1,2 @@
+# TTNe (Time Transect Ne Estimation)
+TTNe is a python package for estimating recent effective population size trajectory using time-series IBD sharing data. For its detailed usage, please refer to our [github repository](https://github.com/hyl317/IBDTimeSeries).

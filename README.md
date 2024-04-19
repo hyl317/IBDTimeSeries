@@ -4,7 +4,7 @@ TTNe is a method for estimating recent effective population size (_Ne_) using sa
 
 ## Installation
 
-todo
+pip install TTNe
 
 ## Basic Usage
 
@@ -12,7 +12,7 @@ To use TTNe, you need to first call IBD segments for your data. You can first us
 
 The test dataset is a bottleneck demography simulated by [msprime](https://tskit.dev/msprime/docs/stable/intro.html). It consists of 120 samples taken at 2 time points (t=0 and t=20 generations backward in time). The bottleneck event happens at t=30. 
 
-The file ./test/input/BN.TP2.8cM.ibd.tsv contains IBD segments longer than 8cM extracted from the simulated ARG. It has four columns: iid1, iid2, ch and lengthM. Note that the segment length is in Morgen. The input .tsv file for IBD segments can also contain additional columns but it should at least contain these four columns (but see below if apply a genomic mask, in which case additional columns are needed).
+The file ./test/input/BN.TP2.8cM.ibd.tsv contains IBD segments longer than 8cM extracted from the simulated ARG. It has four columns: iid1, iid2, ch and lengthM. These four mandatory columns are present in the ancIBD output. For IBD called by other software, you may need to reformat the file. Note that the segment length is in Morgen. The input .tsv file for IBD segments can also contain additional columns but it should at least contain these four columns (but see below if apply a genomic mask, in which case additional columns are needed). 
 
 The file ./test/input/BN.TP2.sample.age contains date information. You should provide dating information for all samples in the IBD .tsv file, one sample per line. The date should be expressed in "years BP". In this test dataset, the first 60 samples are sampled from the 0<sup>th</sup> generation thus having the date 0. The last 60 samples are sampled from the 20<sup>th</sup> generations and therefore are dated to 580 years ago, assuming a generation time of 29 years.
 
@@ -48,12 +48,14 @@ You can specify the error model via --fp, --recall, --lenbias. All of them expec
 - False positives:
     The false positive rate function should take as argument IBD length (in cM), either as a float point number or as a numpy array, and return the density of false positive rate x cM long per pair of haplotypes (not a pair of diploid samples!) and per cM. This definition might be a bit abstract. More concretely, suppose we have n false positive IBD segments falling into a small length bin of width 0.25cM (say, between 7.875-8.125cM), among $N$ pairs of haplotypes of length lcM. Then the density of false positive rate of 8cM IBD segments can be approximated by $\frac{n}{(N*l*0.25)}$. 
 
-
 - Power:
     The power function should take as argument IBD length (in cM), either as a plain float point number or as a numpy array, and return the power of detecting IBD segments of that length. 
 
 - Length Bias:
     Length bias is the inferred IBD length minus the groundtruth IBD length. We make the simplifying assumption that length bias is independent of the groundtruth IBD length. We expect --lenbias to be a pickled scipy.stats.gaussian_kde() object. We use scipy.stats.gaussian_kde.evaluate() function to evaluate the probability density function of length bias. More precisely, let y=gaussian_kde.evaluate(x), then $y \delta l$ is the probability that a IBD segment of length $l$ will have inferred length within the small interval $[l+x-\frac{\delta l}{2},l+x+\frac{\delta l}{2}]$.
+
+> [!NOTE]
+> If an error model is specified, it is important to set --minl_calc and --maxl_calc. This is because, with IBD length bias, shorter segments may be observed as longer segments (and analogously, longer segments may be observed as shorter). Therefore, it is necessary to consider a wider length range than the IBD length range actually used for inference (which is specified by --minl_infer and --maxl_infer).
 
 
 

@@ -4,7 +4,9 @@ TTNe is a method for estimating recent effective population size (_Ne_) using sa
 
 ## Installation
 
-pip install TTNe
+```
+    pip install TTNe
+```
 
 ## Basic Usage
 

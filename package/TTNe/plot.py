@@ -89,6 +89,10 @@ def plot_pairwise_fitting(df_ibd, sampleCluster2id, dates, nHaplotypePairs, ch_l
             ax.plot(midpoint, meanNumIBD_expectation, color='red', linewidth=0.75)
 
         if (not FP is None) and (not R is None) and (not POWER is None):
+            if isinstance(FP, dict):
+                FP_ = FP[(id1, id2)]
+            else:
+                FP_ = FP
             bins_calc = np.arange(minL_calc, maxL_calc+step, step)
             binMidpoint = (bins_calc[1:] + bins_calc[:-1])/2
             s = np.where(np.isclose(binMidpoint, midpoint[0]))[0][0]
@@ -100,7 +104,7 @@ def plot_pairwise_fitting(df_ibd, sampleCluster2id, dates, nHaplotypePairs, ch_l
             for i in np.arange(low1, high1+1):
                 for j in np.arange(low2, high2+1):
                     age_ = max(dates[id1]+i, dates[id2]+j)
-                    lambda_, _ = singlePop_2tp_given_vecNe_withError(estNe[age_:], L, binMidpoint, abs(dates[id1]+i - dates[id2]-j), FP, R, POWER)
+                    lambda_, _ = singlePop_2tp_given_vecNe_withError(estNe[age_:], L, binMidpoint, abs(dates[id1]+i - dates[id2]-j), FP_, R, POWER)
                     lambda_accu += weight_per_combo*lambda_
             meanNumIBD_theory = lambda_accu[s:e+1]
             meanNumIBD_theory = 4*(step/100)*meanNumIBD_theory
@@ -202,70 +206,70 @@ def closest_indices(a, b):
 #     return postprob
 
 
-def plot2PopIMfit(coalRates, ibds_by_chr, ch_len_dict, nPairs, time1, time2, timeBound=None, minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0, step=0.25, FP=None, R=None, POWER=None, outFolder="", prefix=""):
-    bins_infer = np.arange(minL_infer, maxL_infer+step, step)
-    binMidpoint_infer = (bins_infer[1:] + bins_infer[:-1])/2
+# def plot2PopIMfit(coalRates, ibds_by_chr, ch_len_dict, nPairs, time1, time2, timeBound=None, minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0, step=0.25, FP=None, R=None, POWER=None, outFolder="", prefix=""):
+#     bins_infer = np.arange(minL_infer, maxL_infer+step, step)
+#     binMidpoint_infer = (bins_infer[1:] + bins_infer[:-1])/2
 
-    outFigPrefix = f"{outFolder}/postTMRCA"
-    if len(prefix) > 0:
-        outFigPrefix = outFigPrefix + "." + prefix
+#     outFigPrefix = f"{outFolder}/postTMRCA"
+#     if len(prefix) > 0:
+#         outFigPrefix = outFigPrefix + "." + prefix
 
-    G = np.array([v for k, v in ch_len_dict.items()])
-    if timeBound == None:
-        meanNumIBD_theory, _ = twoPopIM_given_coalRate(coalRates, G, binMidpoint_infer, abs(time1 - time2))
-    else:
-        low1 = time1 + timeBound[0][0]
-        low2 = time2 + timeBound[1][0]
-        startingTime = max(low1, low2) # this is the most recent time point for which pop1 and pop2 are temporally overlapping, so this is the time point from which cross-coalescence rate will be estimated backward in time
-        time1 -= startingTime
-        time2 -= startingTime # normalize with respect to starting time. this should make it easier to index into coalRates vector.
-        meanNumIBD_theory = np.zeros(len(binMidpoint_infer))
-        weight_per_combo = 1/((1 + timeBound[0][1] - timeBound[0][0])*(1 + timeBound[1][1] - timeBound[1][0]))
-        for i in np.arange(time1 + timeBound[0][0], time1 + timeBound[0][1] + 1):
-            for j in np.arange(time2 + timeBound[1][0], time2 + timeBound[1][1] + 1):
-                assert(max(i,j) >= 0)
-                lambdas_, _ = twoPopIM_given_coalRate(coalRates[max(i,j):], G, binMidpoint_infer, abs(i - j))
-                meanNumIBD_theory += weight_per_combo*lambdas_
+#     G = np.array([v for k, v in ch_len_dict.items()])
+#     if timeBound == None:
+#         meanNumIBD_theory, _ = twoPopIM_given_coalRate(coalRates, G, binMidpoint_infer, abs(time1 - time2))
+#     else:
+#         low1 = time1 + timeBound[0][0]
+#         low2 = time2 + timeBound[1][0]
+#         startingTime = max(low1, low2) # this is the most recent time point for which pop1 and pop2 are temporally overlapping, so this is the time point from which cross-coalescence rate will be estimated backward in time
+#         time1 -= startingTime
+#         time2 -= startingTime # normalize with respect to starting time. this should make it easier to index into coalRates vector.
+#         meanNumIBD_theory = np.zeros(len(binMidpoint_infer))
+#         weight_per_combo = 1/((1 + timeBound[0][1] - timeBound[0][0])*(1 + timeBound[1][1] - timeBound[1][0]))
+#         for i in np.arange(time1 + timeBound[0][0], time1 + timeBound[0][1] + 1):
+#             for j in np.arange(time2 + timeBound[1][0], time2 + timeBound[1][1] + 1):
+#                 assert(max(i,j) >= 0)
+#                 lambdas_, _ = twoPopIM_given_coalRate(coalRates[max(i,j):], G, binMidpoint_infer, abs(i - j))
+#                 meanNumIBD_theory += weight_per_combo*lambdas_
 
-    meanNumIBD_theory = 4*(step/100)*meanNumIBD_theory
-    plt.plot(binMidpoint_infer, meanNumIBD_theory, color='red', label='IBD from inferred coal rates')
+#     meanNumIBD_theory = 4*(step/100)*meanNumIBD_theory
+#     plt.plot(binMidpoint_infer, meanNumIBD_theory, color='red', label='IBD from inferred coal rates')
 
-    if (not FP is None) and (not R is None) and (not POWER is None):
-        bins_calc = np.arange(minL_calc, maxL_calc+step, step)
-        binMidpoint = (bins_calc[1:]+bins_calc[:-1])/2
-        s = np.where(np.isclose(binMidpoint, binMidpoint_infer[0]))[0][0]
-        e = np.where(np.isclose(binMidpoint, binMidpoint_infer[-1]))[0][0]
-        if timeBound == None:
-            meanNumIBD_theory, _ = twoPopIM_given_coalRate_withError(coalRates, G, binMidpoint, abs(time1 - time2), FP=FP, R=R, POWER=POWER)
-        else:
-            low1 = time1 + timeBound[0][0]
-            low2 = time2 + timeBound[1][0]
-            startingTime = max(low1, low2) # this is the most recent time point for which pop1 and pop2 are temporally overlapping, so this is the time point from which cross-coalescence rate will be estimated backward in time
-            time1 -= startingTime
-            time2 -= startingTime # normalize with respect to starting time. this should make it easier to index into coalRates vector.
-            meanNumIBD_theory = np.zeros(len(binMidpoint_infer))
-            weight_per_combo = 1/((1 + timeBound[0][1] - timeBound[0][0])*(1 + timeBound[1][1] - timeBound[1][0]))
-            for i in np.arange(time1 + timeBound[0][0], time1 + timeBound[0][1] + 1):
-                for j in np.arange(time2 + timeBound[1][0], time2 + timeBound[1][1] + 1):
-                    assert(max(i,j) >= 0)
-                    lambdas_, _ = twoPopIM_given_coalRate_withError(coalRates[max(i,j):], G, binMidpoint, abs(i - j), FP=FP, R=R, POWER=POWER)
-                    meanNumIBD_theory += weight_per_combo*lambdas_
-        meanNumIBD_theory = meanNumIBD_theory[s:e+1]
-        meanNumIBD_theory = 4*(step/100)*meanNumIBD_theory
-        plt.plot(binMidpoint_infer, meanNumIBD_theory, color='orange', linestyle='--', label='IBD from inferred coal rates (error model correction)')
+#     if (not FP is None) and (not R is None) and (not POWER is None):
+#         bins_calc = np.arange(minL_calc, maxL_calc+step, step)
+#         binMidpoint = (bins_calc[1:]+bins_calc[:-1])/2
+#         s = np.where(np.isclose(binMidpoint, binMidpoint_infer[0]))[0][0]
+#         e = np.where(np.isclose(binMidpoint, binMidpoint_infer[-1]))[0][0]
+#         if timeBound == None:
+#             meanNumIBD_theory, _ = twoPopIM_given_coalRate_withError(coalRates, G, binMidpoint, abs(time1 - time2), FP=FP, R=R, POWER=POWER)
+#         else:
+#             low1 = time1 + timeBound[0][0]
+#             low2 = time2 + timeBound[1][0]
+#             startingTime = max(low1, low2) # this is the most recent time point for which pop1 and pop2 are temporally overlapping, so this is the time point from which cross-coalescence rate will be estimated backward in time
+#             time1 -= startingTime
+#             time2 -= startingTime # normalize with respect to starting time. this should make it easier to index into coalRates vector.
+#             meanNumIBD_theory = np.zeros(len(binMidpoint_infer))
+#             weight_per_combo = 1/((1 + timeBound[0][1] - timeBound[0][0])*(1 + timeBound[1][1] - timeBound[1][0]))
+#             for i in np.arange(time1 + timeBound[0][0], time1 + timeBound[0][1] + 1):
+#                 for j in np.arange(time2 + timeBound[1][0], time2 + timeBound[1][1] + 1):
+#                     assert(max(i,j) >= 0)
+#                     lambdas_, _ = twoPopIM_given_coalRate_withError(coalRates[max(i,j):], G, binMidpoint, abs(i - j), FP=FP, R=R, POWER=POWER)
+#                     meanNumIBD_theory += weight_per_combo*lambdas_
+#         meanNumIBD_theory = meanNumIBD_theory[s:e+1]
+#         meanNumIBD_theory = 4*(step/100)*meanNumIBD_theory
+#         plt.plot(binMidpoint_infer, meanNumIBD_theory, color='orange', linestyle='--', label='IBD from inferred coal rates (error model correction)')
 
-    ibds_all = []
-    for ch, ibds in ibds_by_chr.items():
-        ibds_all.extend(ibds)
-    x, _ = np.histogram(ibds_all, bins=bins_infer)
-    plt.scatter(binMidpoint_infer, x/nPairs, s=7.0, label='simulated IBD', color='grey')
+#     ibds_all = []
+#     for ch, ibds in ibds_by_chr.items():
+#         ibds_all.extend(ibds)
+#     x, _ = np.histogram(ibds_all, bins=bins_infer)
+#     plt.scatter(binMidpoint_infer, x/nPairs, s=7.0, label='simulated IBD', color='grey')
 
-    plt.xlabel('Segment Length (cM)')
-    plt.ylabel('Number of Segments per Pair of Samples')
-    plt.legend(loc='upper right', fontsize='medium')
-    plt.yscale('log')
-    plt.savefig(outFigPrefix + '.fit.pdf', dpi=300)
-    plt.clf()
+#     plt.xlabel('Segment Length (cM)')
+#     plt.ylabel('Number of Segments per Pair of Samples')
+#     plt.legend(loc='upper right', fontsize='medium')
+#     plt.yscale('log')
+#     plt.savefig(outFigPrefix + '.fit.pdf', dpi=300)
+#     plt.clf()
 
 
 

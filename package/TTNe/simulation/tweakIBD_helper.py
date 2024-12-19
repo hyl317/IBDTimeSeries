@@ -4,6 +4,7 @@ import numpy as np
 import math
 import pickle
 from analytic_multi import ch_len_dict_default
+import pandas as pd
 
 def FP(l, L, Ne):
     """
@@ -89,6 +90,82 @@ def alterIBD_multiTP(path2groundtruth, nSamples, POWER=None, FP=None, Ne=2500, l
     # now save the IBD segments with error added
     return ibds, ibds_error
     #pickle.dump(ibds_error, open(f'{path2groundtruth}.{suffix}', 'wb'))
+
+
+def alterIBD_multiTP_empirical_error_model(df_ibd, sampleCluster2id, POWER=None, FP=None, R=None, seed=1):
+    # df_ibd: a pandas dataframe containing IBD segments
+    # alter the groundtruth IBD according to the given error model
+    # nSamples: the dictionary containing sampling cluster index and number of samples in that cluster
+    # set random seed for numpy
+    # POWER and FP should be a pickled 1-d interpolator function (from scipy)
+    # R should be a pickled KDE object (from scipy)
+    np.random.seed(seed)
+    binStep = 0.25
+    bins = np.arange(4, 20, binStep)
+    binMidpoint = (bins[1:] + bins[:-1])/2
+    ##### load the error model if provided
+    if POWER:
+        POWER = pickle.load(open(POWER, 'rb'))
+    if FP:
+        FP = pickle.load(open(FP, 'rb'))
+    if R:
+        R = pickle.load(open(R, 'rb'))
+    # simualte imperfect power, and, for segments that are detected, add length bias
+    
+
+    df_ibd_altered = pd.DataFrame(columns=['iid1', 'iid2', 'ch', 'lengthM'])
+    iid1_list = []
+    iid2_list = []
+    ch_list = []
+    lengthCM_list = []
+
+    for index, row in df_ibd.iterrows():
+        if POWER is None or np.random.rand() < POWER(100*row['lengthM']):
+            # this segment can be detected, now draw its length bias
+            if R is None:
+                iid1_list.append(row['iid1'])
+                iid2_list.append(row['iid2'])
+                ch_list.append(row['ch'])
+                lengthCM_list.append(100*row['lengthM'])
+            else:
+                iid1_list.append(row['iid1'])
+                iid2_list.append(row['iid2'])
+                ch_list.append(row['ch'])
+                lengthCM_list.append(100*row['lengthM'] + R.resample(1)[0][0])
+    ## add FP segments
+    if FP:
+        for clst1, clst2 in itertools.combinations_with_replacement(sampleCluster2id.keys(), 2):
+            n1, n2 = len(sampleCluster2id[clst1]), len(sampleCluster2id[clst2])
+            npairs = n1*n2 if clst1 != clst2 else n1*(n1-1)/2
+            for ch in range(1, 23):
+                fp_mu = npairs*4*binStep*FP(binMidpoint)*ch_len_dict_default[ch] # be careful with units here
+                # draw Poisson random var from fp_mu
+                nfp = np.random.poisson(fp_mu)
+                for i, n in enumerate(nfp):
+                    #print(f'adding {n} FP to ({clst1},{clst2}) ch{ch} with length {binMidpoint[i]}.')
+                    for _ in range(n):
+                        if clst1 == clst2:
+                            # randomly pick two samples from sampleCluster2id[clst1]
+                            iid1, iid2 = np.random.choice(sampleCluster2id[clst1], size=2, replace=False)
+                        else:
+                            iid1, iid2 = np.random.choice(sampleCluster2id[clst1]), np.random.choice(sampleCluster2id[clst2])
+                        iid1_list.append(iid1)
+                        iid2_list.append(iid2)
+                        ch_list.append(ch)
+                        lengthCM_list.append(binMidpoint[i])
+
+    # now save the IBD segments with error added
+    df_ibd_altered['iid1'] = iid1_list
+    df_ibd_altered['iid2'] = iid2_list
+    df_ibd_altered['ch'] = ch_list
+    df_ibd_altered['lengthM'] = lengthCM_list
+    df_ibd_altered['lengthM'] = df_ibd_altered['lengthM']/100
+    return df_ibd_altered
+
+
+
+
+
 
 
 def alterIBD_singlePair(path2groundtruth, nPairs, chromLength, POWER=None, FP=None, FPscale=10, loc=0, scale=math.sqrt(1.3), suffix='error'):

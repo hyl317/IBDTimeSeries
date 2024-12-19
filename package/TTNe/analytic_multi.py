@@ -10,6 +10,7 @@ from TTNe.analytic import singlePop_2tp_given_Ne_negLoglik, \
     singlePop_2tp_given_vecNe_DevStat_noPenalty
 from TTNe.inference_utility import get_ibdHistogram_by_sampleCluster
 from TTNe.plot import plot_pairwise_fitting, plot_pairwise_TMRCA, plot2PopIMfit
+from AccProx import AccProx_trendFiltering_l1
 import matplotlib.pyplot as plt
 import pickle
 import warnings
@@ -34,9 +35,13 @@ def singlePop_MultiTP_given_Ne_negLoglik(Ne, histograms, binMidpoint, chrlens, d
         if nHaplotypePair == 0:
             continue
         clusterID1, clusterID2 = min(clusterID1, clusterID2), max(clusterID1, clusterID2)
+        if isinstance(FP, dict):
+            FP_ = FP[(clusterID1, clusterID2)]
+        else:
+            FP_ = FP
         accu += singlePop_2tp_given_Ne_negLoglik(Ne, histograms[(clusterID1, clusterID2)], 
                 binMidpoint, chrlens, dates[clusterID1], dates[clusterID2], nHaplotypePair,
-                [(timeBoundDict[clusterID1]), (timeBoundDict[clusterID2])], s, e, FP, R, POWER)
+                [(timeBoundDict[clusterID1]), (timeBoundDict[clusterID2])], s, e, FP_, R, POWER)
     return accu
 
 def inferConstNe_singlePop_MultiTP(histograms, binMidpoint, dates, nHaplotypePairs, Ninit, chrlens, timeBoundDict, s=0, e=-1, FP=None, R=None, POWER=None):
@@ -75,9 +80,13 @@ def singlePop_MultiTP_given_vecNe_negLoglik(Ne, histograms, binMidpoint, chrlens
         if nHaplotypePair == 0:
             continue
         clusterID1, clusterID2 = min(clusterID1, clusterID2), max(clusterID1, clusterID2)
+        if isinstance(FP, dict):
+            FP_ = FP[(clusterID1, clusterID2)]
+        else:
+            FP_ = FP
         accu_, grad_ = singlePop_2tp_given_vecNe_negLoglik_noPenalty(Ne, histograms[(clusterID1, clusterID2)],
             binMidpoint, chrlens, dates[clusterID1], dates[clusterID2], Tmax, nHaplotypePair, 
-            [timeBoundDict[clusterID1], timeBoundDict[clusterID2]], s=s, e=e, FP=FP, R=R, POWER=POWER, tail=tail)
+            [timeBoundDict[clusterID1], timeBoundDict[clusterID2]], s=s, e=e, FP=FP_, R=R, POWER=POWER, tail=tail)
         accu += accu_
         grad += grad_
     
@@ -139,7 +148,11 @@ def bootstrap_single_run(histograms, chrlens, dates, nHaplotypePairs,
     s = np.where(np.isclose(binMidpoint, binMidpoint_infer[0]))[0][0]
     e = np.where(np.isclose(binMidpoint, binMidpoint_infer[-1]))[0][0]
     if (not FP is None) and (not R is None) and (not POWER is None):
-        assert(len(FP) == len(binMidpoint))
+        if isinstance(FP, dict):
+            for _, v in FP.items():
+                assert(len(v) == len(binMidpoint))
+        else:
+            assert(len(FP) == len(binMidpoint))
         assert(len(POWER) == len(binMidpoint))
         assert(R.shape[0] == R.shape[1] == len(binMidpoint))
     Nconst = inferConstNe_singlePop_MultiTP(histograms, binMidpoint, dates, nHaplotypePairs, Ninit, chrlens, timeBoundDict, s, e, FP, R, POWER)
@@ -186,6 +199,11 @@ def bootstrap_single_run(histograms, chrlens, dates, nHaplotypePairs,
             print(res)
             print(f'elapsed time for optimization: {time.time() - t1:.3f}s')
         return res.x
+    elif method == 'l1':
+        t1 = time.time()
+        res = AccProx_trendFiltering_l1(NinitVec, histograms, binMidpoint, chrlens, dates_adjusted, nHaplotypePairs, 
+                                Tmax, alpha, beta, timeBoundDict, Nconst, 
+                                s=s, e=e+1, FP=FP, R=R, POWER=POWER)
     else:
         raise RuntimeError('Unsupported Method')
 
@@ -291,7 +309,7 @@ def inferVecNe_singlePop_MultiTP(df_ibd, sampleCluster2id, dates, ch_len_dict=No
                     kfold=5, Ninit=Ninit, Tmax=Tmax,
                     minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer,
                     FP=FP, R=R, POWER=POWER, step=step, beta=beta, 
-                    prefix=prefix, outfolder=outFolder, save=True, parallel=parallel, nprocess=nprocess)
+                    prefix=prefix, outfolder=outFolder, save=True, parallel=parallel, nprocess=nprocess, method=method)
         print(f'hyperparameter search takes {time.time() - t1:.3f}s')
 
     bins = np.arange(minL_calc, maxL_calc+step, step=step)
@@ -304,7 +322,7 @@ def inferVecNe_singlePop_MultiTP(df_ibd, sampleCluster2id, dates, ch_len_dict=No
             plot_prefix = "pairwise." + prefix
         else:
             plot_prefix = "pairwise"
-        min_plot = math.floor(np.min(100*df_ibd['lengthM'].values))
+        min_plot = max(6.0, math.floor(np.min(100*df_ibd['lengthM'].values)))
         print(f'minL for plotting: {min_plot}')
         plot_pairwise_fitting(df_ibd, sampleCluster2id, dates, nHaplotypePairs, ch_len_dict, Ne, outFolder, timeBoundDict, prefix=plot_prefix, \
             minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL=maxL_infer, step=step, minL_plot=min_plot, FP=FP, R=R, POWER=POWER)
@@ -351,7 +369,7 @@ def inferVecNe_singlePop_MultiTP(df_ibd, sampleCluster2id, dates, ch_len_dict=No
 def inferVecNe_singlePop_MultiTP_withMask(path2IBD, path2SampleAge, path2ChrDelimiter, path2mask=None, \
         Ninit=500, Tmax=100, minL_calc=2.0, maxL_calc=24.0, minL_infer=6.0, maxL_infer=20.0, step=0.25, alpha=2500, beta=250, method='l2', \
         FP=None, R=None, POWER=None, generation_time=29, minSample=10, maxSample=np.inf, merge_level=5, \
-        prefix="", doBootstrap=True, autoHyperParam=True, outFolder='.', dryrun=True, plot=True, parallel=True, nprocess=10):
+        prefix="", doBootstrap=True, autoHyperParam=True, outFolder='.', dryrun=False, plot=True, parallel=True, nprocess=10):
     ###### read in a list of samples with their mean BP. 
     sampleAgeDict = {}
     youngest_age = np.inf
@@ -632,7 +650,7 @@ def get_ibdHistogram_for_each_train_val_split(df_ibd, sampleCluster2id, k_fold,
 
 def getLoglik_kfold(ibdHistogram_for_each_train_val_split, dates, chrlens, timeBoundDict, alpha, k_fold, Ninit=500, Tmax=100,
                        minL_calc=2.0, maxL_calc=22, minL_infer=6.0, maxL_infer=20.0, step=0.1, 
-                       beta=250, FP=None, R=None, POWER=None):
+                       beta=250, FP=None, R=None, POWER=None, method='l2'):
 
     logliks = []
     devstats = []
@@ -647,7 +665,7 @@ def getLoglik_kfold(ibdHistogram_for_each_train_val_split, dates, chrlens, timeB
         # now, we have the training and validation set, we can start the inference
         Ne = bootstrap_single_run(ibdHistogram_train, chrlens, dates, nHaplotypePairs_train, timeBoundDict, 
                 Ninit=Ninit, Tmax=Tmax, minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer,
-                step=step, alpha=alpha, beta=beta, FP=FP, R=R, POWER=POWER)
+                step=step, alpha=alpha, beta=beta, FP=FP, R=R, POWER=POWER, method=method)
         # compute the loglikelihood of the validation set
         loglik, _= singlePop_MultiTP_given_vecNe_negLoglik(Ne, ibdHistogram_val, binMidpoint, chrlens, dates, 
                                             nHaplotypePairs_val, Tmax, 0, 0, timeBoundDict,
@@ -666,7 +684,7 @@ def getLoglik_kfold_wrapper(args):
 def hyperparam_kfold(df_ibd, sampleCluster2id, dates, chr_lens, timeBoundDict, kfold=5, Ninit=500, Tmax=100, \
                     minL_calc=2.0, maxL_calc=22, minL_infer=6.0, maxL_infer=20.0,
                     FP=None, R=None, POWER=None, step=0.1, beta=250, prefix="", outfolder="", save=False,
-                    parallel=True, nprocess=10):
+                    parallel=True, nprocess=10, method='l2'):
     alphas = np.logspace(np.log10(50), 7, 30)
     logliks = np.zeros((len(alphas), kfold))
     devstats = np.zeros((len(alphas), kfold))
@@ -676,14 +694,14 @@ def hyperparam_kfold(df_ibd, sampleCluster2id, dates, chr_lens, timeBoundDict, k
         for i, alpha in tqdm(enumerate(alphas)):
             logliks_on_val, devstats_on_val = getLoglik_kfold(ibdHistogram_for_each_train_val_split, dates, chr_lens, timeBoundDict, alpha, kfold, Ninit, Tmax, \
                                   minL_calc=minL_calc, maxL_calc=maxL_calc, minL_infer=minL_infer, maxL_infer=maxL_infer, step=step, 
-                                  beta=beta, FP=FP, R=R, POWER=POWER)
+                                  beta=beta, FP=FP, R=R, POWER=POWER, method=method)
             print(f'alpha={alpha:.3f}, avg_loglik_on_val={np.mean(logliks_on_val):.3f}, avg_devstat_on_val={np.mean(devstats_on_val):.3f}', flush=True)
             logliks[i] = logliks_on_val
             devstats[i] = devstats_on_val
     else:
         params = [[ibdHistogram_for_each_train_val_split, dates, chr_lens, timeBoundDict, alpha, kfold, Ninit, Tmax, 
                         minL_calc, maxL_calc, minL_infer, maxL_infer, step, 
-                        beta, FP, R, POWER] for alpha in alphas]
+                        beta, FP, R, POWER, method] for alpha in alphas]
         with mp.Pool(processes = nprocess) as pool:
             results = list(tqdm(pool.imap(getLoglik_kfold_wrapper, params), total=len(alphas)))
         for i, (logliks_on_val, devstats_on_val) in enumerate(results):

@@ -84,37 +84,31 @@ def singlePop_2tp_given_vecNe_negLoglik_noPenalty_grad(Ne, histogram, binMidpoin
     grad = -numPairs*(step/100)*np.sum((histogram/lambdas - 1).reshape((1, len(histogram)))*grad_mat, axis=1).flatten()
     return grad
 
-def g(Ne, histograms, binMidpoint, G, gaps, nSamples, time_offset):
+def g(Ne, histograms, binMidpoint, G, gaps, nHaplotypePairs, time_offset):
     # return the negative loglikelihood of Ne, plus the differentiable penalty term
     # G: a vector of chromosome length
     # gaps: dictionary, where the key is the sampling cluster index and the value is the sampling time
     # nSamples: dictionary, where the key is the sampling cluster index and the value is the number of diploid samples within each cluster
     Ne = np.exp(Ne)
     accu = 0
-    for id, nSample in nSamples.items():
-        if nSample == 1:
+    for (id1, id2), nHaplotypePair in nHaplotypePairs.items():
+        if nHaplotypePair == 0:
             continue
-        accu += singlePop_2tp_given_vecNe_negLoglik_noPenalty_g(Ne[gaps[id]-time_offset:], histograms[(id, id)], binMidpoint, G, 0, \
-                    (2*nSample)*(2*nSample-2)/2)
-    for id1, id2 in itertools.combinations(nSamples.keys(), 2):
         accu += singlePop_2tp_given_vecNe_negLoglik_noPenalty_g(Ne[max(gaps[id1], gaps[id2])-time_offset:], histograms[(min(id1, id2), max(id1, id2))], \
-            binMidpoint, G, abs(gaps[id1] - gaps[id2]), (2*nSamples[id1])*(2*nSamples[id2]))
+            binMidpoint, G, abs(gaps[id1] - gaps[id2]), nHaplotypePair)
     
     #accu += beta*np.sum((np.log(Ne)-np.log(Nconst))**2)
     return accu
 
-def grad(Ne, histograms, binMidpoint, G, gaps, nSamples, time_offset):
+def grad(Ne, histograms, binMidpoint, G, gaps, nHaplotypePairs, time_offset):
     # gradient function of the above function g()
     Ne = np.exp(Ne)
     grad = np.zeros_like(Ne)
-    for id, nSample in nSamples.items():
-        if nSample == 1:
+    for (id1, id2), nHaplotypePair in nHaplotypePairs.items():
+        if nHaplotypePair == 0:
             continue
-        grad[gaps[id]-time_offset:] += singlePop_2tp_given_vecNe_negLoglik_noPenalty_grad(Ne[gaps[id]-time_offset:], histograms[(id, id)], binMidpoint, G, 0, \
-                    (2*nSample)*(2*nSample-2)/2)
-    for id1, id2 in itertools.combinations(nSamples.keys(), 2):
         grad[max(gaps[id1], gaps[id2])-time_offset:] += singlePop_2tp_given_vecNe_negLoglik_noPenalty_grad(Ne[max(gaps[id1], gaps[id2])-time_offset:], histograms[(min(id1, id2), max(id1, id2))], \
-            binMidpoint, G, abs(gaps[id1] - gaps[id2]), (2*nSamples[id1])*(2*nSamples[id2]))
+            binMidpoint, G, abs(gaps[id1] - gaps[id2]), nHaplotypePair)
     
     #grad += beta*np.sum(2*(np.log(Ne) - np.log(Nconst))/Ne)
     return grad
@@ -122,10 +116,10 @@ def grad(Ne, histograms, binMidpoint, G, gaps, nSamples, time_offset):
 
 
 
-def AccProx_trendFiltering_l1(Ne, histograms, binMidpoint, G, gaps, nSamples, Tmax, alpha, beta, timeBoundDict, Nconst, s=0, e=-1, FP=None, R=None, POWER=None):
+def AccProx_trendFiltering_l1(Ne, histograms, binMidpoint, G, gaps, nHaplotypePairs, Tmax, alpha, beta, timeBoundDict, Nconst, s=0, e=-1, FP=None, R=None, POWER=None):
     # optimize the objective function using the Nesterov accelerated proximal gradient method implemented in MuShi
     initNe = np.log(Ne)
-    params = [histograms, binMidpoint, G, gaps, nSamples, 0]
+    params = [histograms, binMidpoint, G, gaps, nHaplotypePairs, 0]
     ########################### auxiliary function defined inside this big function ##############################
     # defined as inner function so that I don't need to include alpha in params
     @jit(nopython=True)

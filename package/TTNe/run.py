@@ -86,7 +86,7 @@ def main():
         with open(args.fp, 'rb') as f:
             FP_func = pickle.load(f)
             FP = FP_func(binmidpoint)
-        with open(args.recall, 'rb') as f:
+        with open(args.lenbias, 'rb') as f:
             kde = pickle.load(f)
             lengthDiff = binmidpoint.reshape(1, -1) - binmidpoint.reshape(-1, 1)
             nrow, ncol = lengthDiff.shape
@@ -94,7 +94,7 @@ def main():
         for i in range(nrow):
             for j in range(ncol):
                 R[i,j] = step*kde.evaluate(lengthDiff[i,j])
-        with open(args.lenbias, 'rb') as f:
+        with open(args.recall, 'rb') as f:
             POWER_func = pickle.load(f)
             POWER = POWER_func(binmidpoint)
 

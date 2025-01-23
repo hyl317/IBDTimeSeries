@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "TTNe"
-version = "0.0.1a"
+version = "0.0.1"
 authors = [
   { name="Yilei Huang", email="yilei_huang@eva.mpg.de" },
     {name = "Harald Ringbauer", email = "harald_ringbauer@eva.mpg.de"},

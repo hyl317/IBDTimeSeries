@@ -9,8 +9,7 @@ from TTNe.analytic import singlePop_2tp_given_Ne_negLoglik, \
     singlePop_2tp_given_vecNe_negLoglik_noPenalty,\
     singlePop_2tp_given_vecNe_DevStat_noPenalty
 from TTNe.inference_utility import get_ibdHistogram_by_sampleCluster
-from TTNe.plot import plot_pairwise_fitting, plot_pairwise_TMRCA, plot2PopIMfit
-from AccProx import AccProx_trendFiltering_l1
+from TTNe.plot import plot_pairwise_fitting, plot_pairwise_TMRCA
 import matplotlib.pyplot as plt
 import pickle
 import warnings
@@ -199,11 +198,6 @@ def bootstrap_single_run(histograms, chrlens, dates, nHaplotypePairs,
             print(res)
             print(f'elapsed time for optimization: {time.time() - t1:.3f}s')
         return res.x
-    elif method == 'l1':
-        t1 = time.time()
-        res = AccProx_trendFiltering_l1(NinitVec, histograms, binMidpoint, chrlens, dates_adjusted, nHaplotypePairs, 
-                                Tmax, alpha, beta, timeBoundDict, Nconst, 
-                                s=s, e=e+1, FP=FP, R=R, POWER=POWER)
     else:
         raise RuntimeError('Unsupported Method')
 

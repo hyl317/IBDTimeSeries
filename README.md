@@ -43,12 +43,12 @@ You may wish to mask certain genomic regions for various reasons (e.g, low SNP d
 
 ## Specifying Error Model
 
-This is an advanced topic and is not trivial to adapt to everyone's specific case unfortunately. At a high level, one needs to simulate IBD and evaluate IBD caller's precision, recall and length bias at the coverage typical for your samples. In our manuscript, we simulated IBD by using the naturally occuring IBD between parent-offspring pairs. To simulate an IBD block shared between two samples, we take reads aligned to the intended IBD block from the parent and offspring BAM files, respectively. For non-IBD block, we take aligned reads from another two unrelated samples. For more details, please refer to Supplementary Note 2 of our manuscript.
+This is an advanced topic and is not trivial to adapt to everyone's specific case unfortunately. At a high level, one needs to simulate IBD and evaluate IBD caller's precision, recall and length bias at the coverage typical for your samples. In our manuscript, we simulated IBD by using the naturally occuring IBD between parent-offspring pairs. To simulate an IBD block shared between two samples, we take reads aligned to the intended IBD block from the parent and offspring BAM files, respectively. For non-IBD block, we take aligned reads from another two unrelated samples. For more details, please refer to Supplementary Note 2 of our manuscript. We provide a python script in the folder ./error_model_utility to do such simnulations. For details of using this script, please read the docstring in that script.
 
 You can specify the error model via --fp, --recall, --lenbias. All of them expect a pickled python object that takes in a single parameter x or a numpy array and returns corresponding values for the error model (see descriptions below).
 
 - False positives:
-    The false positive rate function should take as argument IBD length (in cM), either as a float point number or as a numpy array, and return the density of false positive rate x cM long per pair of haplotypes (not a pair of diploid samples!) and per cM. This definition might be a bit abstract. More concretely, suppose we have n false positive IBD segments falling into a small length bin of width 0.25cM (say, between 7.875-8.125cM), among $N$ pairs of haplotypes of length lcM. Then the density of false positive rate of 8cM IBD segments can be approximated by $\frac{n}{(N*l*0.25)}$. 
+    The false positive rate function should take as argument IBD length (in cM), either as a float point number or as a numpy array, and return the density of false positive rate x cM long per pair of haplotypes (not a pair of diploid samples!) and per cM. This definition might be a bit abstract. More concretely, suppose we have n false positive IBD segments falling into a small length bin of width 0.25cM (say, between 7.875-8.125cM), among $N$ pairs of haplotypes of length lcM. Then the density of false positive rate of 8cM IBD segments can be approximated by n / (N·l·0.25). 
 
 - Power:
     The power function should take as argument IBD length (in cM), either as a plain float point number or as a numpy array, and return the power of detecting IBD segments of that length. 
@@ -60,6 +60,10 @@ You can specify the error model via --fp, --recall, --lenbias. All of them expec
 > If an error model is specified, it is important to set --minl_calc and --maxl_calc. This is because, with IBD length bias, shorter segments may be observed as longer segments (and analogously, longer segments may be observed as shorter). Therefore, it is necessary to consider a wider length range than the IBD length range actually used for inference (which is specified by --minl_infer and --maxl_infer).
 
 
+## Uncertainty in sampling time
 
+
+If you have a set of samples that cover a relatively large time span (e.g, 10 generations or equivalently ~300 years), you may use the correction procedure as described in Supplementary Note 3. Please note that this will significantly increase runtime. Currently you cannot directly specify the time range in the file that specifies the sample date (--date). You will need to first call the function inferVecNe_singlePop_MultiTP_withMask() with dryrun=True. The function will return a list of python objects, which are df_ibd, sampleCluster2id, dates, ch_len_dict, FP, R, POWER. You will use these returned obejcts to call the function inferVecNe_singlePop_MultiTP() and specify the time range via its argument timeBoundDict. This will then return the estimated Ne along with its confidence interval.
+ 
 
  

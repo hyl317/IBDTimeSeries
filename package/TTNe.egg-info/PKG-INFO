@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: TTNe
-Version: 0.1.0
+Version: 0.1.1
 Summary: A python package for inference recent population size trajectories using time-series IBD data
 Author-email: Yilei Huang <yilei_huang@eva.mpg.de>, Harald Ringbauer <harald_ringbauer@eva.mpg.de>
 Project-URL: Homepage, https://github.com/hyl317/IBDTimeSeries

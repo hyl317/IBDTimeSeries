@@ -1,9 +1,12 @@
 LICENSE
+README.md
 pyproject.toml
+TTNe/AccProx.py
 TTNe/__init__.py
 TTNe/analytic.py
 TTNe/analytic_multi.py
 TTNe/inference_utility.py
+TTNe/optimization.py
 TTNe/plot.py
 TTNe/run.py
 TTNe.egg-info/PKG-INFO

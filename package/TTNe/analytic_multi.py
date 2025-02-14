@@ -585,11 +585,17 @@ def hyperparam_opt_DevStat(ibds_by_chr, gaps, nSamples, ch_len_dict, timeBoundDi
 
 def get_ibdHistogram_for_each_train_val_split(df_ibd, sampleCluster2id, k_fold,
                                             minL_calc=2.0, maxL_calc=22, step=0.1):
+    # Precompute a sorted pair for each row, so that (iid1, iid2) and (iid2, iid1) are the same.
+    df_ibd['pair'] = df_ibd.apply(lambda row: tuple(sorted((row['iid1'], row['iid2']))), axis=1)
+    # Group the dataframe by the new 'pair' column. This gives us a dictionary that maps each pair
+    # (as a tuple) to the subset of df_ibd corresponding to that pair.
+    pair_groups = dict(tuple(df_ibd.groupby('pair')))
+    print(f'number of unique pairs: {len(pair_groups)}')
     # this is a map from kfold validation id (from 0 to kfold -1) to a tuple of four dictionaries:
     # ibdHistogram_train, ibdHistogram_val, nHaplotypePairs_train, nHaplotypePairs_val
     # each dictionary maps a pair of sample clusters to what their naming suggests
     ibdHistogram_for_each_train_val_split = {}
-    # first, for each pairs of time points, split pairs of samplesby k_fold
+    # first, for each pairs of time points, split pairs of samples by k_fold
     sampleClusterPairs = list(itertools.combinations_with_replacement(sampleCluster2id.keys(), 2))
     sampleClusterPairs_2_ID_pair_split = {}
     for sampleClusterPair in sampleClusterPairs:
@@ -615,8 +621,9 @@ def get_ibdHistogram_for_each_train_val_split(df_ibd, sampleCluster2id, k_fold,
             nHaplotypePairs_val[sampleClusterPair] = 4*len(validation_pairs)
             dfs_val = []
             for pair in validation_pairs:
-                dfs_val.append(df_ibd[((df_ibd['iid1'] == pair[0]) & (df_ibd['iid2'] == pair[1]))
-                                      | ((df_ibd['iid1'] == pair[1]) & (df_ibd['iid2'] == pair[0]))])
+                key = tuple(sorted(pair))
+                if key in pair_groups:
+                    dfs_val.append(pair_groups[key])
             df_val = pd.concat(dfs_val)
             hist, _ = np.histogram(100*df_val['lengthM'].values, bins=bins)
             ibdHistogram_val[sampleClusterPair] = hist
@@ -627,9 +634,10 @@ def get_ibdHistogram_for_each_train_val_split(df_ibd, sampleCluster2id, k_fold,
                     train_pairs = sampleClusterPairs_2_ID_pair_split[sampleClusterPair][j]
                     nHaplotypePairs_train[sampleClusterPair] += 4*len(train_pairs)
                     for pair in train_pairs:
-                        dfs_train.append(df_ibd[((df_ibd['iid1'] == pair[0]) & (df_ibd['iid2'] == pair[1]))
-                                      | ((df_ibd['iid1'] == pair[1]) & (df_ibd['iid2'] == pair[0]))])
-                
+                        key = tuple(sorted(pair))
+                        if key in pair_groups:
+                            dfs_train.append(pair_groups[key])
+                        
             df_train = pd.concat(dfs_train)
             hist, _ = np.histogram(100*df_train['lengthM'].values, bins=bins)
             ibdHistogram_train[sampleClusterPair] = hist

@@ -20,7 +20,7 @@ The file ./test/input/BN.TP2.sample.age contains date information. You should pr
 
 The file ./test/input/chr.all.start_end specifies the genetic map position of the first and last SNP used for IBD calling. It is used for calculating the total genetic map length and also for working with genomic masks (see below).
 
-These three files are the minimum input files for TTNe. With that, we can run the following command to test it out, assuming your current working directory is the ./test folder. The following command uses IBD segments within the length range 8-20cM (--minl_infer and --maxl_infer) to infer Ne within the 100 generations backward (--Tmax) from the oldest samples.
+These three files are the minimum input files for TTNe. With that, we can run the following command to test it out, assuming your current working directory is the ./test folder. The following command uses IBD segments within the length range 8-20cM (--minl_infer and --maxl_infer) to infer Ne within the 100 generations backward (--Tmax) from the youngest samples.
 
 ```
     TTNe --IBD ./input/BN.TP2.8cM.ibd.tsv --chrdelim ./input/chr.all.start_end --date ./input/BN.TP2.sample.age --Tmax 100 --minl_infer 8 --maxl_infer 20 --out output
